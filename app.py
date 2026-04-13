@@ -281,6 +281,19 @@ def main() -> None:
     st.markdown(
         """
         <style>
+        .stApp {
+          background-image:
+            linear-gradient(rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.76)),
+            url("https://commons.wikimedia.org/wiki/Special:FilePath/Ferry_%C5%9EH-DURUSU_approaching_Yenikap%C4%B1_Ferry_Terminal,_Istanbul,_March_2024_01.jpg");
+          background-size: cover;
+          background-position: center;
+          background-attachment: fixed;
+        }
+        [data-testid="stAppViewContainer"] .main .block-container {
+          background: rgba(255, 248, 240, 0.9);
+          border-radius: 14px;
+          padding: 1rem 1rem 1.2rem;
+        }
         html, body, [class*="css"] { font-size: 16px; }
         .stTabs [role="tablist"] { overflow-x: auto; white-space: nowrap; }
         .stTabs [role="tab"] { padding: 0.5rem 0.8rem; }
