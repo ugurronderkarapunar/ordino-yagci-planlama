@@ -285,9 +285,11 @@ def main() -> None:
           background-image:
             linear-gradient(rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.76)),
             url("https://commons.wikimedia.org/wiki/Special:FilePath/Ferry_%C5%9EH-DURUSU_approaching_Yenikap%C4%B1_Ferry_Terminal,_Istanbul,_March_2024_01.jpg");
-          background-size: cover;
+          background-size: contain;
+          background-repeat: no-repeat;
           background-position: center;
-          background-attachment: fixed;
+          background-attachment: scroll;
+          background-color: #e9f0f4;
         }
         [data-testid="stAppViewContainer"] .main .block-container {
           background: rgba(255, 248, 240, 0.9);
