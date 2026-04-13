@@ -262,4 +262,3 @@ Göndereceğiniz dosyada sayfa adları **Gemi** ve **Makine** ise otomatik içe 
 
 
 main()
-d

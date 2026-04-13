@@ -11,6 +11,12 @@ from datetime import date, timedelta
 from typing import Iterable
 
 
+def gun_sayisi(bas: date, bit: date) -> int:
+    if bit < bas:
+        return 0
+    return (bit - bas).days + 1
+
+
 def haftanin_gunu(d: date) -> int:
     """0=Pazartesi … 6=Pazar."""
     return (d.weekday()) % 7
