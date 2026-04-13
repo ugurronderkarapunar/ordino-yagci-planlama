@@ -18,7 +18,6 @@ import streamlit as st
 
 from src import database as db
 from src.config import get_admin_credentials
-from src.excel_yukle import ornek_sablon, yukle_gemiler_ve_makineler
 from src.oneri_motoru import to_dict_rows, onerileri_hesapla
 from src.vardiya_kurallari import gun_sayisi, izin_pzt_3gun
 
@@ -47,13 +46,80 @@ def _logout() -> None:
 
 
 def _sayfa_excel() -> None:
-    st.subheader("Excel — gemi ve makine tipleri")
-    st.caption("Excel dosyanızı gönderdiğinizde kolon eşlemesi `src/excel_yukle.py` içinde güncellenebilir.")
-    f = st.file_uploader("Excel yükle (.xlsx)", type=["xlsx"])
-    if f and st.button("Yükle ve içe aktar"):
-        g, m = yukle_gemiler_ve_makineler(f)
-        st.success(f"İşlendi (satır sayıları yaklaşık): Gemi {g}, Makine {m}")
-    st.download_button("Örnek şablon indir", data=ornek_sablon(), file_name="ordino_sablon.xlsx")
+    st.subheader("Tanımlar — gemi ve makine tipleri")
+    st.caption("Bu alandan tüm gemi ve makine girişlerini elle yapabilirsiniz.")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("#### Gemi ekle")
+        with st.form("gemi_ekle_form", clear_on_submit=True):
+            gad = st.text_input("Gemi adı")
+            gkod = st.text_input("Gemi kodu (opsiyonel)")
+            gok = st.form_submit_button("Gemi kaydet")
+        if gok:
+            if not gad.strip():
+                st.error("Gemi adı zorunlu.")
+            else:
+                db.sql_run("INSERT INTO gemi(ad, kod) VALUES (?, ?)", (gad.strip(), gkod.strip() or None))
+                st.success("Gemi kaydedildi.")
+                st.rerun()
+
+    with c2:
+        st.markdown("#### Makine tipi ekle")
+        with st.form("makine_ekle_form", clear_on_submit=True):
+            mad = st.text_input("Makine tipi adı")
+            mok = st.form_submit_button("Makine tipi kaydet")
+        if mok:
+            if not mad.strip():
+                st.error("Makine tipi adı zorunlu.")
+            else:
+                db.sql_run("INSERT INTO makine_tipi(ad) VALUES (?)", (mad.strip(),))
+                st.success("Makine tipi kaydedildi.")
+                st.rerun()
+
+    st.divider()
+    st.markdown("#### Kayıtlı gemiler")
+    g_rows = db.sql_all(
+        """
+        SELECT g.id, g.ad, g.kod, COUNT(p.id) AS personel_sayisi
+        FROM gemi g
+        LEFT JOIN personel p ON p.gemi_id = g.id
+        GROUP BY g.id, g.ad, g.kod
+        ORDER BY g.ad
+        """
+    )
+    st.dataframe(pd.DataFrame([dict(r) for r in g_rows]), use_container_width=True)
+    gid_sil = st.number_input("Silinecek gemi ID", min_value=1, step=1, key="gid_sil")
+    if st.button("Gemiyi sil", type="secondary"):
+        bagli = db.sql_one("SELECT COUNT(*) AS c FROM personel WHERE gemi_id = ?", (int(gid_sil),))
+        if bagli and int(bagli["c"]) > 0:
+            st.error("Bu gemiye bağlı personel var. Önce personeli güncelleyin/silin.")
+        else:
+            db.sql_run("DELETE FROM gemi WHERE id = ?", (int(gid_sil),))
+            st.success("Gemi silindi.")
+            st.rerun()
+
+    st.divider()
+    st.markdown("#### Kayıtlı makine tipleri")
+    m_rows = db.sql_all(
+        """
+        SELECT m.id, m.ad, COUNT(p.id) AS personel_sayisi
+        FROM makine_tipi m
+        LEFT JOIN personel p ON p.makine_tipi_id = m.id
+        GROUP BY m.id, m.ad
+        ORDER BY m.ad
+        """
+    )
+    st.dataframe(pd.DataFrame([dict(r) for r in m_rows]), use_container_width=True)
+    mid_sil = st.number_input("Silinecek makine tipi ID", min_value=1, step=1, key="mid_sil")
+    if st.button("Makine tipini sil", type="secondary"):
+        bagli = db.sql_one("SELECT COUNT(*) AS c FROM personel WHERE makine_tipi_id = ?", (int(mid_sil),))
+        if bagli and int(bagli["c"]) > 0:
+            st.error("Bu makine tipine bağlı personel var. Önce personeli güncelleyin/silin.")
+        else:
+            db.sql_run("DELETE FROM makine_tipi WHERE id = ?", (int(mid_sil),))
+            st.success("Makine tipi silindi.")
+            st.rerun()
 
 
 def _sayfa_personel() -> None:
@@ -73,7 +139,7 @@ def _sayfa_personel() -> None:
     gemiler = db.sql_all("SELECT id, ad FROM gemi ORDER BY ad")
     makineler = db.sql_all("SELECT id, ad FROM makine_tipi ORDER BY ad")
     if not gemiler or not makineler:
-        st.warning("Önce Excel ile en az bir gemi ve makine tipi ekleyin.")
+        st.warning("Önce Tanımlar sekmesinden en az bir gemi ve makine tipi ekleyin.")
         return
 
     with st.expander("Yeni personel"):
@@ -255,8 +321,8 @@ def main() -> None:
 - **Önerilen:** Bu projeyi GitHub’a koyup [Streamlit Community Cloud](https://streamlit.io/cloud) ile yayınlayın; `Secrets` içine şifre koyun → size özel **https://....streamlit.app** adresi verilir, HTTPS ve her PC’den erişim.
 - **Colab kullanımı:** Geliştirme / eğitim için not defteri ile paket kurulumu yapılabilir; üretim verisini Colab’da bırakmayın.
 
-### Excel
-Göndereceğiniz dosyada sayfa adları **Gemi** ve **Makine** ise otomatik içe aktarılır; değilse `src/excel_yukle.py` güncellenir.
+### Veri girisi
+Gemi, makine tipi, personel ve izin verilerini uygulama icinden manuel olarak ekleyebilirsiniz.
             """
         )
 
