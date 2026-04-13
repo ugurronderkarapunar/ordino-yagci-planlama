@@ -1,0 +1,7 @@
+.env
+data/*.sqlite3
+data/*.db
+__pycache__/
+.streamlit/secrets.toml
+*.xlsx
+!data/ornek_gemiler.xlsx

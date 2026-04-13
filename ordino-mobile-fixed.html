@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Ordino</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:rgba(0,0,0,0);}
+body{background:#fff5e6;color:#7a3c00;font-family:-apple-system,system-ui,sans-serif;font-size:15px;}
+.tabs{position:sticky;top:0;z-index:99;background:#ffe8cc;display:flex;border-bottom:2px solid #f0c8a0;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+.tabs::-webkit-scrollbar{display:none;}
+.tab{flex:1;min-width:60px;padding:12px 6px 10px;background:none;border:none;font-size:11px;font-weight:700;color:#c97a30;cursor:pointer;text-align:center;border-bottom:3px solid transparent;-webkit-appearance:none;white-space:nowrap;font-family:-apple-system,system-ui,sans-serif;}
+.tab.on{color:#e67e22;border-bottom-color:#e67e22;background:#fff0e0;}
+.pg{display:none;padding:14px;}
+.pg.on{display:block;}
+.box{background:#fff0e0;border-radius:16px;padding:14px;margin-bottom:16px;border:1px solid #f0c8a0;}
+.box-title{font-size:11px;font-weight:700;color:#e67e22;text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;}
+.lbl{display:block;font-size:11px;font-weight:700;color:#cc7000;margin-bottom:4px;text-transform:uppercase;}
+.fg{margin-bottom:10px;}
+input,select{display:block;width:100%;padding:13px 14px;border:1.5px solid #e6a157;border-radius:12px;font-size:15px;background:#fff;color:#7a3c00;-webkit-appearance:none;appearance:none;font-family:-apple-system,system-ui,sans-serif;outline:none;}
+input:focus,select:focus{border-color:#e67e22;}
+.btn{display:block;width:100%;padding:14px;border-radius:12px;border:none;font-size:15px;font-weight:700;background:#e67e22;color:#fff;cursor:pointer;text-align:center;margin-top:4px;font-family:-apple-system,system-ui,sans-serif;-webkit-appearance:none;appearance:none;}
+.btn:active{background:#c96a10;}
+.btn.red{background:#c0392b;}
+.btn.red:active{background:#a02020;}
+.btn.gray{background:#d4956a;color:#fff;}
+.btn.gray:active{background:#b07040;}
+.btn-row{display:flex;gap:8px;margin-top:8px;}
+.btn-row .btn{flex:1;font-size:13px;padding:11px 8px;}
+.card{background:#fff;border-radius:14px;padding:12px 14px;margin-bottom:10px;border:1.5px solid #f0c8a0;}
+.card-name{font-size:15px;font-weight:700;color:#7a3c00;margin-bottom:5px;}
+.card-info{font-size:13px;color:#b85c00;line-height:1.7;margin-bottom:6px;}
+.chip{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600;margin:2px 2px 2px 0;background:#ffe0c0;color:#a04000;}
+.chip.grn{background:#d4f0e0;color:#1e7a40;}
+.chip.blu{background:#d0e8f8;color:#1a4070;}
+.chip.red{background:#fde0e0;color:#a02020;}
+.st{font-size:11px;font-weight:700;color:#e67e22;text-transform:uppercase;letter-spacing:.5px;margin:14px 0 8px;}
+.empty{text-align:center;padding:24px;color:#c8a080;font-size:14px;}
+.oc{background:#fff;border-radius:14px;padding:12px 14px;margin-bottom:8px;border:1.5px solid #f0c8a0;display:flex;gap:10px;align-items:flex-start;}
+.oc.top{border-color:#f39c12;background:#fffdf0;}
+.orn{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex-shrink:0;background:#ffe0c0;color:#a04000;}
+.opuan{font-size:19px;font-weight:800;color:#e67e22;text-align:right;flex-shrink:0;}
+.opuan small{display:block;font-size:9px;color:#c8a080;font-weight:600;}
+.info{background:#ffefdb;border-left:4px solid #e67e22;border-radius:10px;padding:11px 13px;font-size:13px;margin-bottom:12px;color:#8a4000;}
+.overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(80,30,0,.45);z-index:999;-webkit-overflow-scrolling:touch;overflow-y:auto;padding:20px 14px;}
+.overlay.on{display:block;}
+.mbox{background:#fff8f0;border-radius:20px;padding:20px;max-width:500px;margin:0 auto;}
+.mbox-title{font-size:17px;font-weight:700;color:#7a3c00;margin-bottom:16px;}
+.mbtns{display:flex;gap:8px;margin-top:14px;}
+.mbtns .btn{flex:1;font-size:14px;padding:13px;}
+.cklist{display:flex;flex-direction:column;gap:6px;margin-top:4px;}
+.cki{display:flex;align-items:center;gap:10px;background:#fff;border:1.5px solid #f0c8a0;border-radius:12px;padding:11px 12px;cursor:pointer;}
+.cki.on{border-color:#e67e22;background:#fff5e8;}
+.cki input{width:20px;height:20px;accent-color:#e67e22;flex-shrink:0;cursor:pointer;}
+.cki span{font-size:14px;color:#7a3c00;font-weight:500;}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#7a3c00;color:#fff;padding:10px 20px;border-radius:30px;font-size:14px;font-weight:600;z-index:9999;display:none;white-space:nowrap;max-width:90vw;text-align:center;}
+</style>
+</head>
+<body>
+<div class="tabs">
+  <button class="tab on" onclick="goTab('gemiler')">🚢<br>Gemiler</button>
+  <button class="tab" onclick="goTab('personel')">👷<br>Personel</button>
+  <button class="tab" onclick="goTab('bm')">⚙️<br>Başmak.</button>
+  <button class="tab" onclick="goTab('izin')">📅<br>İzin</button>
+  <button class="tab" onclick="goTab('oneri')">✦<br>Öneri</button>
+</div>
+<div id="pg-gemiler" class="pg on"><div class="box"><div class="box-title">Yeni Gemi Ekle</div><div class="fg"><label class="lbl">Gemi Adı</label><input id="g-ad" placeholder="örn. MV Ordino" autocorrect="off" autocapitalize="words"></div><div class="fg"><label class="lbl">Makine Tipi</label><input id="g-mak" placeholder="örn. MAN B&W" autocorrect="off"></div><div class="fg"><label class="lbl">Kadro</label><select id="g-tip"><option value="tek">Tek Yağcı</option><option value="cift">Çift Yağcı</option></select></div><button class="btn" onclick="gemiEkle()">➕ Gemi Ekle</button></div><div class="st">Kayıtlı Gemiler</div><div id="gemi-list"></div></div>
+<div id="pg-personel" class="pg"><div class="box"><div class="box-title">Yeni Yağcı Ekle</div><div class="fg"><label class="lbl">Ad Soyad</label><input id="p-ad" placeholder="Tam adı giriniz" autocorrect="off" autocapitalize="words"></div><div class="fg"><label class="lbl">Vardiya Tipi</label><select id="p-vt" onchange="vtDegis(this.value)"><option value="izinci">✅ İzinci</option><option value="grupcu">👥 Grupçu</option><option value="sabit">⚓ Sabit</option><option value="tersane">🏭 Tersane</option></select></div><div class="fg"><label class="lbl">Vardiya Günleri</label><input id="p-gun" placeholder="örn. Pzt-Çar-Cum" autocorrect="off"></div><div class="fg"><label class="lbl">Bildiği Makine</label><input id="p-mak" placeholder="örn. MAN B&W" autocorrect="off"></div><div id="p-gemi-alan" class="fg"><label class="lbl">Mevcut Gemisi</label><select id="p-gemi"><option value="">— Gemi Seç —</option></select></div><div id="p-grup-alan" style="display:none;" class="fg"><label class="lbl">Atandığı Gemiler (çoklu)</label><div id="p-grup-list" class="cklist"></div></div><button class="btn" onclick="personelEkle()">➕ Yağcı Ekle</button></div><div class="st">Kayıtlı Personel</div><div id="p-list"></div></div>
+<div id="pg-bm" class="pg"><div class="box"><div class="box-title">Başmakinist Ekle</div><div class="fg"><label class="lbl">Ad Soyad</label><input id="bm-ad" placeholder="Başmakinist adı" autocorrect="off" autocapitalize="words"></div><div class="fg"><label class="lbl">Gemisi</label><input id="bm-gemi" placeholder="Gemi adı" autocorrect="off"></div><div class="fg"><label class="lbl">Sorunlu Yağcı</label><input id="bm-sorun" placeholder="Varsa yağcı adı" autocorrect="off"></div><button class="btn" onclick="bmEkle()">➕ Başmakinist Ekle</button></div><div class="st">Kayıtlı Başmakinistler</div><div id="bm-list"></div></div>
+<div id="pg-izin" class="pg"><div class="box"><div class="box-title">İzin Girişi</div><div class="fg"><label class="lbl">Personel</label><select id="iz-p"><option value="">— Seçiniz —</option></select></div><div class="fg"><label class="lbl">Başlangıç</label><input type="date" id="iz-bas" onchange="izGun()"></div><div class="fg"><label class="lbl">Bitiş</label><input type="date" id="iz-bit" onchange="izGun()"></div><div id="iz-info" style="font-size:13px;color:#e67e22;font-weight:600;min-height:18px;margin-bottom:8px;"></div><button class="btn" onclick="izinEkle()">📅 İzin Kaydet</button></div><div class="st">İzin Kayıtları</div><div id="iz-list"></div></div>
+<div id="pg-oneri" class="pg"><div class="box"><div class="box-title">Öneri Parametresi</div><div class="info">📌 İzne çıkan ya da yerine yağcı aranacak personeli seçin</div><div class="fg"><label class="lbl">İzne Çıkan Yağcı</label><select id="on-p"><option value="">— Seçiniz —</option></select></div><div class="fg"><label class="lbl">Tarih</label><input type="date" id="on-t"></div><button class="btn" onclick="oneriHesapla()">🔍 Önerileri Getir</button></div><div id="on-sonuc"></div></div>
+<div class="overlay" id="overlay"><div class="mbox"><div class="mbox-title" id="m-title">Düzenle</div><div id="m-body"></div><div class="mbtns"><button class="btn gray" onclick="mKapat()">İptal</button><button class="btn" onclick="mKaydet()">Kaydet</button></div></div></div>
+<div class="toast" id="toast"></div>
+<script>
+var db={gemiler:[],personeller:[],basMakinistler:[],izinler:[]};
+var mSaveFn=null;
+var STORE_KEY="ordino5";
+var store={mode:"memory",idb:null,ready:false};
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,5);}
+function bug(){return new Date().toISOString().slice(0,10);}
+function e(s){if(s==null)return"";return String(s).replace(/[&<>"']/g,function(m){return{"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m];});}
+function vtLbl(v){return{izinci:"İzinci",grupcu:"Grupçu",sabit:"Sabit",tersane:"Tersane"}[v]||v;}
+function toast(msg){var t=document.getElementById("toast");t.textContent=msg;t.style.display="block";clearTimeout(toast.t);toast.t=setTimeout(function(){t.style.display="none";},2200);}
+function canUseLocalStorage(){try{var k="__ordino_test__";localStorage.setItem(k,"1");localStorage.removeItem(k);return true;}catch(err){return false;}}
+function openIdb(cb){
+  if(!window.indexedDB){cb(false);return;}
+  try{
+    var req=indexedDB.open("ordino-store",1);
+    req.onupgradeneeded=function(ev){var dbx=ev.target.result;if(!dbx.objectStoreNames.contains("kv"))dbx.createObjectStore("kv");};
+    req.onsuccess=function(ev){store.idb=ev.target.result;cb(true);};
+    req.onerror=function(){cb(false);};
+  }catch(err){cb(false);}
+}
+function idbGet(key,cb){
+  if(!store.idb){cb(null);return;}
+  var tx=store.idb.transaction(["kv"],"readonly");
+  var os=tx.objectStore("kv");
+  var req=os.get(key);
+  req.onsuccess=function(){cb(req.result||null);};
+  req.onerror=function(){cb(null);};
+}
+function idbSet(key,val){
+  if(!store.idb)return;
+  try{
+    var tx=store.idb.transaction(["kv"],"readwrite");
+    tx.objectStore("kv").put(val,key);
+  }catch(err){}
+}
+function kaydet(){
+  var payload=JSON.stringify(db);
+  if(store.mode==="local"){try{localStorage.setItem(STORE_KEY,payload);}catch(err){toast("⚠️ Kaydetme hatası");}}
+  else if(store.mode==="idb"){idbSet(STORE_KEY,payload);}
+}
+function demoVeri(){
+  db={gemiler:[{id:"g1",ad:"MV Ordino",makine:"MAN B&W",tip:"cift",atanmis:[]},{id:"g2",ad:"Gemi Sultan",makine:"Wartsila",tip:"tek",atanmis:[]}],personeller:[{id:"p1",ad:"Ali Veli",vt:"izinci",gunler:"Pzt-Çar-Cum",makine:"MAN B&W",gemi:"MV Ordino",grupGemiler:[]},{id:"p2",ad:"Can Yılmaz",vt:"grupcu",gunler:"Pzt-Sal",makine:"Wartsila",gemi:"",grupGemiler:["g2"]},{id:"p3",ad:"Mehmet Demir",vt:"sabit",gunler:"Sal-Per-Cmt",makine:"MAN B&W",gemi:"MV Ordino",grupGemiler:[]}],basMakinistler:[],izinler:[]};
+}
+function loadFromString(raw){
+  if(!raw)return false;
+  try{
+    var parsed=JSON.parse(raw);
+    if(!parsed||!parsed.gemiler||!parsed.personeller||!parsed.basMakinistler||!parsed.izinler)return false;
+    db=parsed;
+    db.personeller.forEach(function(p){if(!p.grupGemiler)p.grupGemiler=[];});
+    return true;
+  }catch(err){return false;}
+}
+function yukle(cb){
+  function done(){if(!db.gemiler||!db.gemiler.length)demoVeri();cb();}
+  if(store.mode==="local"){
+    var raw=null;
+    try{raw=localStorage.getItem(STORE_KEY);}catch(err){}
+    loadFromString(raw);
+    done();
+    return;
+  }
+  if(store.mode==="idb"){
+    idbGet(STORE_KEY,function(raw){loadFromString(raw);done();});
+    return;
+  }
+  done();
+}
+function initStorage(cb){
+  if(canUseLocalStorage()){store.mode="local";store.ready=true;cb();return;}
+  openIdb(function(ok){
+    if(ok){store.mode="idb";store.ready=true;toast("ℹ️ localStorage kapalı, IndexedDB kullanılıyor");}
+    else{store.mode="memory";store.ready=true;toast("⚠️ Kalıcı kayıt kapalı (Safari Gizli Mod?)");}
+    cb();
+  });
+}
+function izindeMi(pid,tarih){var t=tarih||bug();return db.izinler.some(function(i){return i.pid===pid&&i.bas<=t&&i.bit>=t;});}
+function syncAtama(){db.gemiler.forEach(function(g){g.atanmis=[];});db.personeller.forEach(function(p){if(p.vt==="grupcu"){(p.grupGemiler||[]).forEach(function(gid){var g=db.gemiler.find(function(x){return x.id===gid;});if(g&&g.atanmis.indexOf(p.id)<0)g.atanmis.push(p.id);});}else if(p.gemi){var g=db.gemiler.find(function(x){return x.ad===p.gemi;});if(g&&g.atanmis.indexOf(p.id)<0)g.atanmis.push(p.id);}});}
+function goTab(id){document.querySelectorAll(".pg").forEach(function(p){p.classList.remove("on");});document.querySelectorAll(".tab").forEach(function(t){t.classList.remove("on");});document.getElementById("pg-"+id).classList.add("on");var tabs=["gemiler","personel","bm","izin","oneri"];var idx=tabs.indexOf(id);document.querySelectorAll(".tab")[idx].classList.add("on");window.scrollTo(0,0);if(id==="personel")fillGemiSel();if(id==="izin"){fillIzSel();renderIzin();}if(id==="oneri"){fillOnSel();document.getElementById("on-t").value=bug();}if(id==="bm")renderBM();}
+function gemiEkle(){var ad=document.getElementById("g-ad").value.trim();var mak=document.getElementById("g-mak").value.trim();var tip=document.getElementById("g-tip").value;if(!ad||!mak){toast("⚠️ Gemi adı ve makine zorunlu");return;}db.gemiler.push({id:uid(),ad:ad,makine:mak,tip:tip,atanmis:[]});kaydet();renderGemiler();fillGemiSel();document.getElementById("g-ad").value="";document.getElementById("g-mak").value="";toast("✅ Gemi eklendi");}
+function renderGemiler(){syncAtama();var el=document.getElementById("gemi-list");if(!db.gemiler.length){el.innerHTML='<div class="empty">Henüz gemi eklenmedi</div>';return;}var html="";db.gemiler.forEach(function(g){var adlar=(g.atanmis||[]).map(function(pid){var p=db.personeller.find(function(x){return x.id===pid;});return p?p.ad:null;}).filter(Boolean);var atHtml=adlar.length?adlar.map(function(a){return'<span class="chip">'+e(a)+"</span>";}).join(""):'<span style="font-size:12px;color:#c8a080">Atanmış yok</span>';html+='<div class="card"><div class="card-name">🚢 '+e(g.ad)+'</div><div class="card-info"><span class="chip blu">'+e(g.makine)+'</span><span class="chip '+(g.tip==="cift"?"":"grn")+'">'+(g.tip==="cift"?"Çift Yağcı":"Tek Yağcı")+'</span><div style="margin-top:5px"><span style="font-size:12px;font-weight:700;color:#c07030">Atanmış: </span>'+atHtml+'</div></div><div class="btn-row"><button class="btn gray" onclick="gemiDuzenle(\''+g.id+'\')">✏️ Düzenle</button><button class="btn red" onclick="gemiSil(\''+g.id+'\')">🗑️ Sil</button></div></div>';});el.innerHTML=html;}
+function gemiSil(id){if(!confirm("Bu gemiyi silmek istediğinize emin misiniz?"))return;db.gemiler=db.gemiler.filter(function(g){return g.id!==id;});kaydet();renderGemiler();fillGemiSel();toast("Gemi silindi");}
+function gemiDuzenle(id){var g=db.gemiler.find(function(x){return x.id===id;});if(!g)return;mAc("Gemi Düzenle",'<div class="fg"><label class="lbl">Gemi Adı</label><input id="d-g-ad" value="'+e(g.ad)+'" autocorrect="off"></div><div class="fg"><label class="lbl">Makine</label><input id="d-g-mak" value="'+e(g.makine)+'" autocorrect="off"></div><div class="fg"><label class="lbl">Kadro</label><select id="d-g-tip"><option value="tek"'+(g.tip==="tek"?" selected":"")+'>Tek Yağcı</option><option value="cift"'+(g.tip==="cift"?" selected":"")+'>Çift Yağcı</option></select></div>',function(){var ad=document.getElementById("d-g-ad").value.trim();var mak=document.getElementById("d-g-mak").value.trim();if(ad)g.ad=ad;if(mak)g.makine=mak;g.tip=document.getElementById("d-g-tip").value;kaydet();renderGemiler();fillGemiSel();toast("✅ Gemi güncellendi");});}
+function fillGemiSel(){var opts='<option value="">— Gemi Seç —</option>';db.gemiler.forEach(function(g){opts+='<option value="'+e(g.ad)+'">'+e(g.ad)+"</option>";});document.getElementById("p-gemi").innerHTML=opts;var html="";db.gemiler.forEach(function(g){html+='<label class="cki" id="ck-'+g.id+'"><input type="checkbox" value="'+g.id+'" onchange="ckToggle(this)"><span>🚢 '+e(g.ad)+"</span></label>";});document.getElementById("p-grup-list").innerHTML=html;}
+function ckToggle(cb){var lbl=cb.parentElement;if(cb.checked)lbl.classList.add("on");else lbl.classList.remove("on");}
+function vtDegis(v){document.getElementById("p-gemi-alan").style.display=v==="grupcu"?"none":"block";document.getElementById("p-grup-alan").style.display=v==="grupcu"?"block":"none";}
+function personelEkle(){var ad=document.getElementById("p-ad").value.trim();var vt=document.getElementById("p-vt").value;var gun=document.getElementById("p-gun").value.trim();var mak=document.getElementById("p-mak").value.trim();if(!ad||!mak){toast("⚠️ Ad ve makine bilgisi zorunlu");return;}var gemi="",grup=[];if(vt==="grupcu"){document.querySelectorAll("#p-grup-list input:checked").forEach(function(cb){grup.push(cb.value);});}else{gemi=document.getElementById("p-gemi").value;}db.personeller.push({id:uid(),ad:ad,vt:vt,gunler:gun,makine:mak,gemi:gemi,grupGemiler:grup});syncAtama();kaydet();renderPersoneller();renderGemiler();fillIzSel();fillOnSel();document.getElementById("p-ad").value="";document.getElementById("p-gun").value="";document.getElementById("p-mak").value="";document.getElementById("p-gemi").value="";document.querySelectorAll("#p-grup-list input").forEach(function(cb){cb.checked=false;cb.parentElement.classList.remove("on");});toast("✅ Yağcı eklendi");}
+function renderPersoneller(){var el=document.getElementById("p-list");if(!db.personeller.length){el.innerHTML='<div class="empty">Henüz personel eklenmedi</div>';return;}var html="";db.personeller.forEach(function(p){var gHtml="";if(p.vt==="grupcu"){var adlar=(p.grupGemiler||[]).map(function(gid){var g=db.gemiler.find(function(x){return x.id===gid;});return g?g.ad:null;}).filter(Boolean);gHtml=adlar.length?adlar.map(function(a){return'<span class="chip">'+e(a)+"</span>";}).join(""):"—";}else{gHtml=p.gemi?'<span class="chip">'+e(p.gemi)+"</span>":"—";}html+='<div class="card"><div class="card-name">'+e(p.ad)+'</div><div class="card-info"><span class="chip">'+vtLbl(p.vt)+'</span>'+(p.gunler?'<span class="chip blu">'+e(p.gunler)+"</span>":"")+'<span class="chip">'+e(p.makine)+'</span><div style="margin-top:4px;font-size:12px;color:#c07030;font-weight:700;">Gemi: </div>'+gHtml+'</div><div class="btn-row"><button class="btn gray" onclick="pDuzenle(\''+p.id+'\')">✏️ Düzenle</button><button class="btn red" onclick="pSil(\''+p.id+'\')">🗑️ Sil</button></div></div>';});el.innerHTML=html;}
+function pSil(id){if(!confirm("Bu personeli silmek istediğinize emin misiniz?"))return;db.personeller=db.personeller.filter(function(p){return p.id!==id;});db.izinler=db.izinler.filter(function(i){return i.pid!==id;});syncAtama();kaydet();renderPersoneller();renderGemiler();fillIzSel();fillOnSel();toast("Personel silindi");}
+function pDuzenle(id){var p=db.personeller.find(function(x){return x.id===id;});if(!p)return;var gOpts='<option value="">— Gemi Seç —</option>';db.gemiler.forEach(function(g){gOpts+='<option value="'+e(g.ad)+'"'+(p.gemi===g.ad?" selected":"")+">"+e(g.ad)+"</option>";});var gCks="";db.gemiler.forEach(function(g){var ch=(p.grupGemiler||[]).indexOf(g.id)>=0;gCks+='<label class="cki'+(ch?" on":"")+'" id="dck-'+g.id+'"><input type="checkbox" value="'+g.id+'" onchange="ckToggle(this)"'+(ch?" checked":"")+"><span>🚢 "+e(g.ad)+"</span></label>";});var vtSel='<select id="d-p-vt" onchange="dVtDegis(this.value)"><option value="izinci"'+(p.vt==="izinci"?" selected":"")+'>✅ İzinci</option><option value="grupcu"'+(p.vt==="grupcu"?" selected":"")+'>👥 Grupçu</option><option value="sabit"'+(p.vt==="sabit"?" selected":"")+'>⚓ Sabit</option><option value="tersane"'+(p.vt==="tersane"?" selected":"")+'>🏭 Tersane</option></select>';mAc("Yağcı Düzenle",'<div class="fg"><label class="lbl">Ad Soyad</label><input id="d-p-ad" value="'+e(p.ad)+'" autocorrect="off" autocapitalize="words"></div><div class="fg"><label class="lbl">Vardiya Tipi</label>'+vtSel+'</div><div class="fg"><label class="lbl">Vardiya Günleri</label><input id="d-p-gun" value="'+e(p.gunler)+'" autocorrect="off"></div><div class="fg"><label class="lbl">Makine</label><input id="d-p-mak" value="'+e(p.makine)+'" autocorrect="off"></div><div class="fg" id="d-gemi-alan" style="'+(p.vt==="grupcu"?"display:none":"")+'"><label class="lbl">Mevcut Gemisi</label><select id="d-p-gemi">'+gOpts+'</select></div><div class="fg" id="d-grup-alan" style="'+(p.vt==="grupcu"?"":"display:none")+'"><label class="lbl">Atandığı Gemiler</label><div class="cklist">'+gCks+'</div></div>',function(){var ad=document.getElementById("d-p-ad").value.trim();if(ad)p.ad=ad;p.vt=document.getElementById("d-p-vt").value;p.gunler=document.getElementById("d-p-gun").value.trim();var mak=document.getElementById("d-p-mak").value.trim();if(mak)p.makine=mak;if(p.vt==="grupcu"){p.grupGemiler=[];document.querySelectorAll("#m-body input[type=checkbox]:checked").forEach(function(cb){p.grupGemiler.push(cb.value);});p.gemi="";}else{p.gemi=document.getElementById("d-p-gemi").value;p.grupGemiler=[];}syncAtama();kaydet();renderPersoneller();renderGemiler();fillIzSel();fillOnSel();toast("✅ Personel güncellendi");});}
+function dVtDegis(v){var ga=document.getElementById("d-gemi-alan");var gra=document.getElementById("d-grup-alan");if(ga)ga.style.display=v==="grupcu"?"none":"block";if(gra)gra.style.display=v==="grupcu"?"block":"none";}
+function bmEkle(){var ad=document.getElementById("bm-ad").value.trim();var gemi=document.getElementById("bm-gemi").value.trim();var sorun=document.getElementById("bm-sorun").value.trim();if(!ad){toast("⚠️ Ad soyad zorunlu");return;}db.basMakinistler.push({id:uid(),ad:ad,gemi:gemi,sorun:sorun});kaydet();renderBM();document.getElementById("bm-ad").value="";document.getElementById("bm-gemi").value="";document.getElementById("bm-sorun").value="";toast("✅ Başmakinist eklendi");}
+function renderBM(){var el=document.getElementById("bm-list");if(!db.basMakinistler.length){el.innerHTML='<div class="empty">Henüz başmakinist eklenmedi</div>';return;}var html="";db.basMakinistler.forEach(function(b){html+='<div class="card"><div class="card-name">⚙️ '+e(b.ad)+'</div><div class="card-info">'+(b.gemi?'<span class="chip blu">🚢 '+e(b.gemi)+"</span>":"")+(b.sorun?'<span class="chip red">⚠️ '+e(b.sorun)+"</span>":'<span class="chip grn">Sorun yok</span>')+'</div><div class="btn-row"><button class="btn gray" onclick="bmDuzenle(\''+b.id+'\')">✏️ Düzenle</button><button class="btn red" onclick="bmSil(\''+b.id+'\')">🗑️ Sil</button></div></div>';});el.innerHTML=html;}
+function bmSil(id){if(!confirm("Silinsin mi?"))return;db.basMakinistler=db.basMakinistler.filter(function(b){return b.id!==id;});kaydet();renderBM();toast("Silindi");}
+function bmDuzenle(id){var b=db.basMakinistler.find(function(x){return x.id===id;});if(!b)return;mAc("Başmakinist Düzenle",'<div class="fg"><label class="lbl">Ad Soyad</label><input id="d-bm-ad" value="'+e(b.ad)+'" autocorrect="off"></div><div class="fg"><label class="lbl">Gemisi</label><input id="d-bm-gemi" value="'+e(b.gemi)+'" autocorrect="off"></div><div class="fg"><label class="lbl">Sorunlu Yağcı</label><input id="d-bm-sorun" value="'+e(b.sorun)+'" autocorrect="off"></div>',function(){var ad=document.getElementById("d-bm-ad").value.trim();if(ad)b.ad=ad;b.gemi=document.getElementById("d-bm-gemi").value.trim();b.sorun=document.getElementById("d-bm-sorun").value.trim();kaydet();renderBM();toast("✅ Güncellendi");});}
+function fillIzSel(){var opts='<option value="">— Personel Seç —</option>';db.personeller.forEach(function(p){opts+='<option value="'+p.id+'">'+e(p.ad)+"</option>";});document.getElementById("iz-p").innerHTML=opts;}
+function izGun(){var b=document.getElementById("iz-bas").value;var f=document.getElementById("iz-bit").value;var el=document.getElementById("iz-info");if(b&&f){var g=Math.ceil((new Date(f)-new Date(b))/86400000)+1;el.textContent=g>0?"📅 "+g+" gün yıllık izin":"⚠️ Geçersiz tarih";}else el.textContent="";}
+function izinEkle(){var pid=document.getElementById("iz-p").value;var bas=document.getElementById("iz-bas").value;var bit=document.getElementById("iz-bit").value;if(!pid||!bas||!bit){toast("⚠️ Tüm alanlar zorunlu");return;}if(new Date(bit)<new Date(bas)){toast("⚠️ Geçersiz tarih aralığı");return;}var gun=Math.ceil((new Date(bit)-new Date(bas))/86400000)+1;var p=db.personeller.find(function(x){return x.id===pid;});db.izinler.push({id:uid(),pid:pid,pad:p.ad,bas:bas,bit:bit,gun:gun});kaydet();renderIzin();document.getElementById("iz-bas").value="";document.getElementById("iz-bit").value="";document.getElementById("iz-info").textContent="";toast("✅ "+p.ad+" — "+gun+" gün izin");}
+function renderIzin(){var el=document.getElementById("iz-list");var bugun=bug();if(!db.izinler.length){el.innerHTML='<div class="empty">İzin kaydı yok</div>';return;}var list=db.izinler.slice().sort(function(a,b){return a.bas.localeCompare(b.bas);});var html="";list.forEach(function(iz){var aktif=iz.bas<=bugun&&iz.bit>=bugun;var gelecek=iz.bas>bugun;var tag=aktif?'<span class="chip red">Aktif</span>':gelecek?'<span class="chip">Yaklaşan</span>':'<span class="chip blu">Tamamlandı</span>';html+='<div class="card"><div class="card-name">'+e(iz.pad)+'</div><div class="card-info">'+tag+" "+iz.bas+" → "+iz.bit+' <span class="chip">'+iz.gun+' gün</span></div><button class="btn red" onclick="izSil(\''+iz.id+'\')" style="margin-top:6px;">İptal Et</button></div>';});el.innerHTML=html;}
+function izSil(id){if(!confirm("Bu izni iptal etmek istediğinize emin misiniz?"))return;db.izinler=db.izinler.filter(function(i){return i.id!==id;});kaydet();renderIzin();toast("İzin iptal edildi");}
+function fillOnSel(){var opts='<option value="">— Seçiniz —</option>';db.personeller.forEach(function(p){opts+='<option value="'+p.id+'">'+e(p.ad)+" ("+vtLbl(p.vt)+")</option>";});document.getElementById("on-p").innerHTML=opts;}
+var gunMap={pzt:1,pazartesi:1,sal:2,sali:2,car:3,carsamba:3,per:4,persembe:4,cum:5,cuma:5,cmt:6,cumartesi:6,paz:0,pazar:0};
+function oneriHesapla(){var pid=document.getElementById("on-p").value;var tarih=document.getElementById("on-t").value||bug();var el=document.getElementById("on-sonuc");if(!pid){toast("⚠️ Personel seçiniz");return;}var hedef=db.personeller.find(function(p){return p.id===pid;});if(!hedef){el.innerHTML='<div class="info" style="border-color:#c0392b">❌ Personel bulunamadı</div>';return;}var hGemi=null;if(hedef.vt==="grupcu"){if(hedef.grupGemiler&&hedef.grupGemiler.length)hGemi=db.gemiler.find(function(g){return g.id===hedef.grupGemiler[0];});}else{hGemi=db.gemiler.find(function(g){return g.ad===hedef.gemi;});}if(!hGemi){el.innerHTML='<div class="info" style="border-color:#c0392b">❌ Personelin gemisi bulunamadı. Lütfen personel düzenle → gemi seç.</div>';return;}var sorunluAdlar=db.basMakinistler.filter(function(b){return b.gemi===hGemi.ad&&b.sorun;}).map(function(b){return b.sorun.toLowerCase().trim();});var tarihGun=new Date(tarih).getDay();var adaylar=db.personeller.filter(function(p){return p.id!==pid;}).map(function(p){if(izindeMi(p.id,tarih))return null;var hm=hGemi.makine.toLowerCase().trim();var pm=p.makine.toLowerCase().trim();if(!pm.includes(hm)&&!hm.includes(pm))return null;if(p.vt==="grupcu"){if((p.grupGemiler||[]).indexOf(hGemi.id)>=0)return null;}else{if(p.gemi===hGemi.ad)return null;}if(sorunluAdlar.indexOf(p.ad.toLowerCase().trim())>=0)return null;if(p.vt==="sabit"||p.vt==="tersane"){var pg=p.gunler.toLowerCase().split(/[-,. \/]+/);if(pg.some(function(g){return gunMap[g]===tarihGun;}))return null;}var baz={izinci:1000,grupcu:600,sabit:300,tersane:100};var puan=baz[p.vt]||100;if(!p.gemi&&(!p.grupGemiler||!p.grupGemiler.length))puan+=80;return Object.assign({},p,{puan:puan});}).filter(Boolean).sort(function(a,b){return b.puan-a.puan;}).slice(0,5);if(!adaylar.length){el.innerHTML='<div class="info" style="border-color:#c0392b">😔 <strong>'+e(hedef.ad)+'</strong> yerine uygun yağcı bulunamadı.<br><span style="font-size:12px">Tüm uygun personel izinde, vardiyada veya makine uyumsuz.</span></div>';return;}var rEm=["🥇","🥈","🥉","4.","5."];var html='<div class="info">📍 <strong>'+e(hedef.ad)+'</strong> yerine öneriler<br>🚢 '+e(hGemi.ad)+" · "+e(hGemi.makine)+" · 📅 "+tarih+"</div>";html+='<div class="st">En İyi '+adaylar.length+" Aday</div>";adaylar.forEach(function(p,i){html+='<div class="oc'+(i===0?" top":"")+'"><div class="orn">'+rEm[i]+'</div><div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:700;color:#7a3c00;margin-bottom:4px;">'+e(p.ad)+'</div><span class="chip">'+vtLbl(p.vt)+'</span><span class="chip blu">'+e(p.makine)+"</span>"+(p.gunler?'<span class="chip">'+e(p.gunler)+"</span>":"")+'</div><div class="opuan">'+p.puan+"<small>puan</small></div></div>";});html+='<div class="info" style="margin-top:10px;font-size:12px">💡 İzinci (1000) › Grupçu (600) › Sabit (300) › Tersane (100)</div>';el.innerHTML=html;}
+function mAc(title,bodyHtml,saveFn){mSaveFn=saveFn;document.getElementById("m-title").textContent=title;document.getElementById("m-body").innerHTML=bodyHtml;document.getElementById("overlay").classList.add("on");}
+function mKapat(){document.getElementById("overlay").classList.remove("on");mSaveFn=null;}
+function mKaydet(){if(mSaveFn)mSaveFn();mKapat();}
+document.getElementById("overlay").addEventListener("click",function(ev){if(ev.target===this)mKapat();});
+function startApp(){syncAtama();renderGemiler();renderPersoneller();renderBM();fillGemiSel();fillIzSel();fillOnSel();document.getElementById("on-t").value=bug();toast("✅ Ordino hazır");}
+initStorage(function(){yukle(function(){startApp();});});
+</script>
+</body>
+</html>

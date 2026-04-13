@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: ordino-yagci-planlama
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app.py --server.headless true --server.address 0.0.0.0 --server.port $PORT
+    envVars:
+      - key: ORDINO_ADMIN_USER
+        sync: false
+      - key: ORDINO_ADMIN_PASSWORD
+        sync: false
+      - key: ORDINO_DB_PATH
+        value: /var/data/ordino.sqlite3
+    disks:
+      - name: ordino-data
+        mountPath: /var/data
+        sizeGB: 1
