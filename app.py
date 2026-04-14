@@ -127,7 +127,8 @@ def _sayfa_personel() -> None:
     rows = db.sql_all(
         """
         SELECT p.id, p.ad, p.soyad, g.ad AS gemi, m.ad AS makine, p.vardiya_tipi, p.vardiya_gunleri,
-               p.gemiden_cekilme, p.carkci_ile_sorun
+               p.gemiden_cekilme, p.carkci_ile_sorun, p.gemi_tutumu, p.izin_tercih_gunleri,
+               p.izin_saat_araligi, p.is_kalitesi, p.performans_notu
         FROM personel p
         LEFT JOIN gemi g ON g.id = p.gemi_id
         LEFT JOIN makine_tipi m ON m.id = p.makine_tipi_id
@@ -151,14 +152,37 @@ def _sayfa_personel() -> None:
         vt = st.selectbox("Vardiya tipi", ["SABIT", "GRUPCU", "8_5"])
         secilen = st.multiselect("Vardiya günleri (8/5 için boş bırakılabilir)", GUNLER_TR, default=["Pazartesi", "Çarşamba", "Cuma"])
         gun_json = json.dumps([GUNLER_TR.index(x) for x in secilen]) if secilen else "[]"
+        st.markdown("##### Personel profil detayları")
+        gemi_tutumu = st.selectbox("Gemi içi tutum", ["Mükemmel", "İyi", "Orta", "Gelişmeli"])
+        izin_gunleri = st.multiselect("Tercih edilen izin günleri", GUNLER_TR)
+        izin_gun_json = json.dumps([GUNLER_TR.index(x) for x in izin_gunleri]) if izin_gunleri else "[]"
+        c3, c4 = st.columns(2)
+        izin_bas = c3.time_input("Tercih edilen izin başlangıç saati")
+        izin_bit = c4.time_input("Tercih edilen izin bitiş saati")
+        is_kalitesi = st.slider("İş kalitesi puanı", min_value=1, max_value=5, value=4)
+        performans_notu = st.text_area("Performans notu", placeholder="Örn: Acil durumlarda hızlı reaksiyon, ekip uyumu yüksek.")
         if st.button("Personel kaydet"):
             if not ad or not soyad:
                 st.error("Ad ve soyad zorunlu.")
             else:
                 db.sql_run(
-                    """INSERT INTO personel(ad, soyad, gemi_id, makine_tipi_id, vardiya_tipi, vardiya_gunleri)
-                       VALUES (?,?,?,?,?,?)""",
-                    (ad, soyad, int(gid), int(mid), vt, gun_json),
+                    """INSERT INTO personel(
+                           ad, soyad, gemi_id, makine_tipi_id, vardiya_tipi, vardiya_gunleri,
+                           gemi_tutumu, izin_tercih_gunleri, izin_saat_araligi, is_kalitesi, performans_notu
+                       ) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        ad,
+                        soyad,
+                        int(gid),
+                        int(mid),
+                        vt,
+                        gun_json,
+                        gemi_tutumu,
+                        izin_gun_json,
+                        f"{izin_bas.strftime('%H:%M')} - {izin_bit.strftime('%H:%M')}",
+                        int(is_kalitesi),
+                        performans_notu.strip() or None,
+                    ),
                 )
                 st.success("Kaydedildi.")
                 st.rerun()
@@ -282,15 +306,22 @@ def main() -> None:
         """
         <style>
         .stApp {
-          background: linear-gradient(160deg, #fff7ef 0%, #ffe0bf 45%, #ffd2a1 100%);
+          background-image:
+            linear-gradient(rgba(22, 15, 8, 0.32), rgba(22, 15, 8, 0.32)),
+            linear-gradient(160deg, rgba(255, 247, 239, 0.78) 0%, rgba(255, 224, 191, 0.72) 45%, rgba(255, 210, 161, 0.72) 100%),
+            url("https://commons.wikimedia.org/wiki/Special:FilePath/Ferry_%C5%9EH-DURUSU_approaching_Yenikap%C4%B1_Ferry_Terminal,_Istanbul,_March_2024_01.jpg");
+          background-size: cover;
+          background-repeat: no-repeat;
+          background-position: center center;
+          background-attachment: fixed;
           color: #2f251b;
         }
         [data-testid="stAppViewContainer"] .main .block-container {
-          background: rgba(255, 255, 255, 0.95);
+          background: rgba(255, 255, 255, 0.96);
           border-radius: 14px;
           padding: 1rem 1rem 1.2rem;
           border: 1px solid #ffd2a1;
-          box-shadow: 0 8px 24px rgba(176, 89, 18, 0.12);
+          box-shadow: 0 12px 34px rgba(28, 17, 8, 0.22);
         }
         h1, h2, h3, h4, p, li, label, span, div {
           color: #2f251b !important;

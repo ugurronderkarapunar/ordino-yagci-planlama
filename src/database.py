@@ -73,6 +73,17 @@ def init_db() -> None:
             );
             """
         )
+        mevcut_kolonlar = {row["name"] for row in c.execute("PRAGMA table_info(personel)").fetchall()}
+        ek_kolonlar = [
+            ("gemi_tutumu", "TEXT"),
+            ("izin_tercih_gunleri", "TEXT"),
+            ("izin_saat_araligi", "TEXT"),
+            ("is_kalitesi", "INTEGER NOT NULL DEFAULT 3"),
+            ("performans_notu", "TEXT"),
+        ]
+        for kolon_adi, kolon_tipi in ek_kolonlar:
+            if kolon_adi not in mevcut_kolonlar:
+                c.execute(f"ALTER TABLE personel ADD COLUMN {kolon_adi} {kolon_tipi}")
 
 
 def sql_all(query: str, params: tuple[Any, ...] = ()) -> list[sqlite3.Row]:
