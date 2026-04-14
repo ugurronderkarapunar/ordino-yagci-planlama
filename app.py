@@ -295,19 +295,48 @@ def main() -> None:
         h1, h2, h3, h4, p, li, label, span, div {
           color: #2f251b !important;
         }
+        [data-testid="stForm"] {
+          background: #fffaf4;
+          border: 1px solid #ffd8b0;
+          border-radius: 12px;
+          padding: 0.9rem 1rem 0.4rem;
+        }
+        [data-testid="stExpander"] {
+          border: 1px solid #ffd8b0;
+          border-radius: 12px;
+          background: #fffdf9;
+        }
+        [data-baseweb="input"] > div,
+        [data-baseweb="select"] > div,
+        .stDateInput > div > div {
+          background: #fff8f0;
+          border-color: #f4bf8a !important;
+          border-radius: 10px;
+        }
+        [data-baseweb="input"] input,
+        [data-baseweb="select"] input {
+          color: #2f251b !important;
+        }
         html, body, [class*="css"] { font-size: 16px; }
-        .stTabs [role="tablist"] { overflow-x: auto; white-space: nowrap; }
+        .stTabs [role="tablist"] {
+          overflow-x: auto;
+          white-space: nowrap;
+          gap: 0.45rem;
+          padding-bottom: 0.35rem;
+        }
         .stTabs [role="tab"] {
-          padding: 0.5rem 0.8rem;
+          padding: 0.55rem 0.95rem;
           background: #fff5ea;
           border: 1px solid #ffcb97;
           border-radius: 8px;
           color: #5a320a;
+          font-weight: 600;
         }
         .stTabs [aria-selected="true"] {
           background: #f3831f !important;
           color: #ffffff !important;
           border-color: #f3831f !important;
+          box-shadow: 0 4px 12px rgba(243, 131, 31, 0.35);
         }
         .stButton button {
           width: 100%;
@@ -315,14 +344,26 @@ def main() -> None:
           background: #f3831f;
           color: #ffffff;
           border: 1px solid #d66d12;
+          border-radius: 10px;
+          font-weight: 600;
+          transition: all 0.15s ease-in-out;
         }
         .stButton button:hover {
           background: #d96f14;
           border-color: #bf5f10;
           color: #ffffff;
+          transform: translateY(-1px);
         }
         .stDataFrame, .stTable {
           background: #ffffff;
+          border-radius: 10px;
+          border: 1px solid #f7d7b4;
+        }
+        [data-testid="stSidebar"] {
+          background: linear-gradient(180deg, #fff3e3 0%, #ffe7cc 100%);
+          border-left: 1px solid #ffd1a0;
+        }
+        .stAlert {
           border-radius: 10px;
         }
         @media (max-width: 768px) {
