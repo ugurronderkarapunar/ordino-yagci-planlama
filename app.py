@@ -282,24 +282,49 @@ def main() -> None:
         """
         <style>
         .stApp {
-          background-image:
-            linear-gradient(rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.76)),
-            url("https://commons.wikimedia.org/wiki/Special:FilePath/Ferry_%C5%9EH-DURUSU_approaching_Yenikap%C4%B1_Ferry_Terminal,_Istanbul,_March_2024_01.jpg");
-          background-size: contain;
-          background-repeat: no-repeat;
-          background-position: center;
-          background-attachment: scroll;
-          background-color: #e9f0f4;
+          background: linear-gradient(160deg, #fff7ef 0%, #ffe0bf 45%, #ffd2a1 100%);
+          color: #2f251b;
         }
         [data-testid="stAppViewContainer"] .main .block-container {
-          background: rgba(255, 248, 240, 0.9);
+          background: rgba(255, 255, 255, 0.95);
           border-radius: 14px;
           padding: 1rem 1rem 1.2rem;
+          border: 1px solid #ffd2a1;
+          box-shadow: 0 8px 24px rgba(176, 89, 18, 0.12);
+        }
+        h1, h2, h3, h4, p, li, label, span, div {
+          color: #2f251b !important;
         }
         html, body, [class*="css"] { font-size: 16px; }
         .stTabs [role="tablist"] { overflow-x: auto; white-space: nowrap; }
-        .stTabs [role="tab"] { padding: 0.5rem 0.8rem; }
-        .stButton button { width: 100%; min-height: 44px; }
+        .stTabs [role="tab"] {
+          padding: 0.5rem 0.8rem;
+          background: #fff5ea;
+          border: 1px solid #ffcb97;
+          border-radius: 8px;
+          color: #5a320a;
+        }
+        .stTabs [aria-selected="true"] {
+          background: #f3831f !important;
+          color: #ffffff !important;
+          border-color: #f3831f !important;
+        }
+        .stButton button {
+          width: 100%;
+          min-height: 44px;
+          background: #f3831f;
+          color: #ffffff;
+          border: 1px solid #d66d12;
+        }
+        .stButton button:hover {
+          background: #d96f14;
+          border-color: #bf5f10;
+          color: #ffffff;
+        }
+        .stDataFrame, .stTable {
+          background: #ffffff;
+          border-radius: 10px;
+        }
         @media (max-width: 768px) {
           .block-container { padding: 0.8rem 0.7rem 1.2rem; }
           .stDataFrame { font-size: 13px; }
