@@ -69,7 +69,8 @@ def init_db() -> None:
                 gemi_id INTEGER REFERENCES gemi(id),
                 problemli_yagci_id INTEGER REFERENCES personel(id),
                 sorun_metni TEXT,
-                vardiya_notu TEXT
+                vardiya_notu TEXT,
+                carkci_vardiya TEXT
             );
             """
         )
@@ -80,10 +81,14 @@ def init_db() -> None:
             ("izin_saat_araligi", "TEXT"),
             ("is_kalitesi", "INTEGER NOT NULL DEFAULT 3"),
             ("performans_notu", "TEXT"),
+            ("carkci_sorun_notu", "TEXT"),
         ]
         for kolon_adi, kolon_tipi in ek_kolonlar:
             if kolon_adi not in mevcut_kolonlar:
                 c.execute(f"ALTER TABLE personel ADD COLUMN {kolon_adi} {kolon_tipi}")
+        carkci_kolonlar = {row["name"] for row in c.execute("PRAGMA table_info(carkci)").fetchall()}
+        if "carkci_vardiya" not in carkci_kolonlar:
+            c.execute("ALTER TABLE carkci ADD COLUMN carkci_vardiya TEXT")
 
 
 def sql_all(query: str, params: tuple[Any, ...] = ()) -> list[sqlite3.Row]:
