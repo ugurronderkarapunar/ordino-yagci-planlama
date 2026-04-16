@@ -138,7 +138,7 @@ def init_db():
 load_dotenv()
 def get_admin_credentials():
     user = os.getenv("ORDINO_ADMIN_USER", "admin")
-    pwd  = os.getenv("ORDINO_ADMIN_PASSWORD", "123456")
+    pwd  = os.getenv("ORDINO_ADMIN_PASSWORD", "7283")
     return user, pwd
 
 # ---------- YARDIMCI FONKSİYONLAR ----------
