@@ -212,11 +212,8 @@ def izinde_mi(personel_id: int, tarih: date) -> bool:
     return False
 
 # ---------- ÖNERİ MOTORU (kendi mantığınızla değiştirin) ----------
-# Bu kısım sizin orijinal oneri_motoru.py içeriğinizle doldurulmalı
 def onerileri_hesapla(gemi_id: int, makine_tipi_id: int, hedef_tarih: date, cikan_personel_id: int = None, limit: int = 5):
-    # Örnek basit bir öneri: tüm aktif personeli döndür
     personeller = sql_all("SELECT id, ad, soyad FROM personel WHERE aktif = 1")
-    # Gerçek hesaplama mantığınızı buraya yazın
     return personeller[:limit]
 
 def to_dict_rows(oneriler):
@@ -266,13 +263,14 @@ def _sayfa_excel():
         else:
             try:
                 sql_run("INSERT INTO gemi(ad, kod) VALUES (?, ?)", (gad.strip(), gkod.strip() or None))
-            except Exception:
-                st.warning("Gemi zaten kayıtlı olabilir, mevcut kayıt korundu.")
+            except Exception as e:
+                st.warning(f"Gemi eklenemedi: {e}")
             try:
                 sql_run("INSERT INTO makine_tipi(ad) VALUES (?)", (mad.strip(),))
-            except Exception:
-                st.warning("Makine tipi zaten kayıtlı olabilir, mevcut kayıt korundu.")
-            st.success("Gemi ve makine tipi kaydı işlendi.")
+            except Exception as e:
+                st.warning(f"Makine tipi eklenemedi: {e}")
+            else:
+                st.success("Gemi ve makine tipi kaydı işlendi.")
             st.rerun()
 
     st.divider()
@@ -282,7 +280,7 @@ def _sayfa_excel():
         FROM gemi g LEFT JOIN personel p ON p.gemi_id = g.id
         GROUP BY g.id, g.ad, g.kod ORDER BY g.ad
     """)
-    st.dataframe(pd.DataFrame(g_rows), use_container_width=True)
+    st.dataframe(pd.DataFrame(g_rows), width='stretch')
 
     with st.expander("✏️ Gemi düzenle"):
         if g_rows:
@@ -292,12 +290,15 @@ def _sayfa_excel():
             yeni_gad  = st.text_input("Yeni gemi adı", value=g_sec["ad"] or "", key="gemi_yeni_ad")
             yeni_gkod = st.text_input("Yeni gemi kodu", value=g_sec["kod"] or "", key="gemi_yeni_kod")
             if st.button("Gemi adını/kodunu güncelle", key="btn_gemi_guncelle"):
-                if yeni_gad.strip():
-                    sql_run("UPDATE gemi SET ad = ?, kod = ? WHERE id = ?", (yeni_gad.strip(), yeni_gkod.strip() or None, g_sec["id"]))
-                    st.success("Gemi güncellendi.")
-                    st.rerun()
-                else:
+                if not yeni_gad.strip():
                     st.error("Gemi adı boş olamaz.")
+                else:
+                    try:
+                        sql_run("UPDATE gemi SET ad = ?, kod = ? WHERE id = ?", (yeni_gad.strip(), yeni_gkod.strip() or None, g_sec["id"]))
+                        st.success("Gemi güncellendi.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Güncelleme hatası: {e}")
         else:
             st.info("Düzenlenecek gemi yok.")
 
@@ -318,7 +319,7 @@ def _sayfa_excel():
         FROM makine_tipi m LEFT JOIN personel p ON p.makine_tipi_id = m.id
         GROUP BY m.id, m.ad ORDER BY m.ad
     """)
-    st.dataframe(pd.DataFrame(m_rows), use_container_width=True)
+    st.dataframe(pd.DataFrame(m_rows), width='stretch')
 
     with st.expander("✏️ Makine tipi düzenle"):
         if m_rows:
@@ -327,12 +328,20 @@ def _sayfa_excel():
             m_sec = m_map[m_secim]
             yeni_mad = st.text_input("Yeni makine tipi adı", value=m_sec["ad"] or "", key="makine_yeni_ad")
             if st.button("Makine tipi adını güncelle", key="btn_makine_guncelle"):
-                if yeni_mad.strip():
-                    sql_run("UPDATE makine_tipi SET ad = ? WHERE id = ?", (yeni_mad.strip(), m_sec["id"]))
-                    st.success("Makine tipi güncellendi.")
-                    st.rerun()
-                else:
+                if not yeni_mad.strip():
                     st.error("Makine tipi adı boş olamaz.")
+                else:
+                    # Aynı ada sahip başka bir kayıt var mı kontrol et
+                    existing = sql_one("SELECT id FROM makine_tipi WHERE ad = ? AND id != ?", (yeni_mad.strip(), m_sec["id"]))
+                    if existing:
+                        st.error(f"'{yeni_mad.strip()}' adında başka bir makine tipi zaten var.")
+                    else:
+                        try:
+                            sql_run("UPDATE makine_tipi SET ad = ? WHERE id = ?", (yeni_mad.strip(), m_sec["id"]))
+                            st.success("Makine tipi güncellendi.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Güncelleme hatası: {e}")
         else:
             st.info("Düzenlenecek makine tipi yok.")
 
@@ -368,7 +377,7 @@ def _sayfa_personel():
         gids = _gemi_id_listesi(s.get("gemi_id_list"))
         s["gemiler"] = ", ".join(tum_gemiler.get(gid, str(gid)) for gid in gids) if gids else (s.get("gemi") or "-")
         satirlar.append(s)
-    st.dataframe(pd.DataFrame(satirlar), use_container_width=True)
+    st.dataframe(pd.DataFrame(satirlar), width='stretch')
 
     gemiler = sql_all("SELECT id, ad FROM gemi ORDER BY ad")
     makineler = sql_all("SELECT id, ad FROM makine_tipi ORDER BY ad")
@@ -518,7 +527,7 @@ def _sayfa_izin():
         SELECT i.id, p.ad, p.soyad, i.baslangic, i.bitis, i.gun_sayisi, i.notlar
         FROM izin i JOIN personel p ON p.id = i.personel_id ORDER BY i.baslangic DESC LIMIT 50
     """)
-    st.dataframe(pd.DataFrame(iz), use_container_width=True)
+    st.dataframe(pd.DataFrame(iz), width='stretch')
 
 def _sayfa_carkci():
     st.subheader("Çarkçı kayıtları")
@@ -548,7 +557,7 @@ def _sayfa_carkci():
         FROM carkci c LEFT JOIN gemi g ON g.id = c.gemi_id LEFT JOIN personel p ON p.id = c.problemli_yagci_id
         ORDER BY c.id DESC LIMIT 30
     """)
-    st.dataframe(pd.DataFrame(cr), use_container_width=True)
+    st.dataframe(pd.DataFrame(cr), width='stretch')
 
 def _sayfa_oneri():
     st.subheader("Yağcı öneri (en fazla 5, skor 5 en iyi)")
@@ -573,7 +582,7 @@ def _sayfa_oneri():
         if not rows:
             st.warning("Uygun aday bulunamadı (kurallar veya veri eksik).")
         else:
-            st.dataframe(pd.DataFrame(rows), use_container_width=True)
+            st.dataframe(pd.DataFrame(rows), width='stretch')
 
 def _sayfa_bilgi():
     st.subheader("Bilgi ve canlı durum özeti")
@@ -601,14 +610,15 @@ def _sayfa_bilgi():
         GROUP BY g.id, g.ad ORDER BY g.ad
     """)
     st.markdown("#### Gemilerde personel dağılımı")
-    st.dataframe(pd.DataFrame(gemi_bazli), use_container_width=True)
+    st.dataframe(pd.DataFrame(gemi_bazli), width='stretch')
 
 # ---------- ANA ----------
 def main():
     st.set_page_config(page_title="Ordino Yağcı Planlaması", page_icon="⚓", layout="wide", initial_sidebar_state="collapsed")
+    # Basit CSS (isteğe bağlı, mevcut stillerinizi ekleyebilirsiniz)
     st.markdown("""
         <style>
-        /* stiller - kısaltmak için yazmadım, mevcut stillerinizi koyabilirsiniz */
+        /* stiller */
         </style>
     """, unsafe_allow_html=True)
     init_db()
