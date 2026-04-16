@@ -510,28 +510,11 @@ def _sayfa_izin():
     pid = st.selectbox("Personel", [r["id"] for r in plist],
                        format_func=lambda i: f"{next(r['ad'] for r in plist if r['id']==i)} {next(r['soyad'] for r in plist if r['id']==i)}",
                        key="izin_pid")
-    col1, col2 = st.columns(2)
-    with col1:
-        bas = st.date_input("Başlangıç", value=date.today(), key="izin_bas")
-    with col2:
-        bit = st.date_input("Bitiş", value=date.today(), key="izin_bit")
-    
-    # Haftalık izin kısayolu
-    if st.button("Bu hafta (Pazartesi - Cuma)"):
-        today = date.today()
-        start = today - timedelta(days=today.weekday())  # Pazartesi
-        end = start + timedelta(days=4)  # Cuma
-        bas = start
-        bit = end
-        st.rerun()
-    
+    c1, c2 = st.columns(2)
+    bas = c1.date_input("Başlangıç", value=date.today(), key="izin_bas")
+    bit = c2.date_input("Bitiş", value=date.today(), key="izin_bit")
     gun = gun_sayisi(bas, bit)
     st.write(f"Hesaplanan gün sayısı: **{gun}**")
-    ucb = st.checkbox("Pazartesi vardiya günü izni → 3 gün (Pzt–Sal–Çar) uygula", key="izin_ucb")
-    if ucb and bas.weekday() == 0:
-        bas, bit = izin_pzt_3gun(bas)
-        st.info(f"Tarihler güncellendi: {bas} → {bit}")
-        gun = gun_sayisi(bas, bit)
     notlar = st.text_input("Not (isteğe bağlı)", key="izin_not")
     if st.button("İzin kaydet", key="btn_izin_kaydet"):
         sql_run("INSERT INTO izin(personel_id, baslangic, bitis, gun_sayisi, notlar) VALUES (?,?,?,?,?)",
@@ -545,58 +528,6 @@ def _sayfa_izin():
         FROM izin i JOIN personel p ON p.id = i.personel_id ORDER BY i.baslangic DESC LIMIT 50
     """)
     st.dataframe(pd.DataFrame(iz), width='stretch')
-
-def _sayfa_carkci():
-    st.subheader("Çarkçı kayıtları")
-    gemiler = sql_all("SELECT id, ad FROM gemi ORDER BY ad")
-    yagcilar = sql_all("SELECT id, ad, soyad FROM personel WHERE aktif = 1 ORDER BY ad")
-    if not gemiler:
-        st.warning("Gemi gerekli.")
-        return
-    ad = st.text_input("Çarkçı adı", key="carkci_ad")
-    soyad = st.text_input("Çarkçı soyadı", key="carkci_soyad")
-    gid = st.selectbox("Gemi", [r["id"] for r in gemiler], format_func=lambda i: next(r["ad"] for r in gemiler if r["id"] == i), key="carkci_gemi")
-    
-    # Vardiya günleri çoklu seçim
-    carkci_gunler = st.multiselect("Çarkçının vardiya günleri", GUNLER_TR, key="carkci_gunler")
-    carkci_gunler_json = json.dumps([GUNLER_TR.index(g) for g in carkci_gunler]) if carkci_gunler else "[]"
-    
-    # Sorunlu yağcı: isteğe bağlı
-    yagci_options = [{"id": None, "ad": "Seçilmedi", "soyad": ""}] + yagcilar
-    yid = st.selectbox(
-        "Sorunlu yağcı (isteğe bağlı)",
-        options=yagci_options,
-        format_func=lambda x: f"{x['ad']} {x['soyad']}".strip() if x['id'] else "Seçilmedi",
-        key="carkci_yagci"
-    )
-    sorun = st.text_area("Sorun / açıklama (isteğe bağlı)", key="carkci_sorun")
-    vn = st.text_input("Çarkçı vardiya notu", key="carkci_not")
-    
-    if st.button("Çarkçı kaydı oluştur", key="btn_carkci_kaydet"):
-        yagci_id = yid['id'] if yid and yid.get('id') else None
-        sql_run("""
-            INSERT INTO carkci(ad, soyad, gemi_id, problemli_yagci_id, sorun_metni, vardiya_notu, vardiya_gunleri)
-            VALUES (?,?,?,?,?,?,?)
-        """, (ad, soyad, gid, yagci_id, sorun, vn, carkci_gunler_json))
-        if yagci_id:
-            sql_run("UPDATE personel SET carkci_ile_sorun = 1, carkci_sorun_notu = ? WHERE id = ?", (sorun.strip() or None, yagci_id))
-            st.success("Kaydedildi; yağcı öneri motorunda elendi.")
-        else:
-            st.success("Çarkçı kaydedildi, sorunlu yağcı belirtilmedi.")
-        st.rerun()
-    
-    st.divider()
-    cr = sql_all("""
-        SELECT c.id, c.ad, c.soyad, g.ad AS gemi, c.vardiya_gunleri, 
-               p.ad || ' ' || p.soyad AS yagci, c.sorun_metni
-        FROM carkci c 
-        LEFT JOIN gemi g ON g.id = c.gemi_id 
-        LEFT JOIN personel p ON p.id = c.problemli_yagci_id
-        ORDER BY c.id DESC LIMIT 30
-    """)
-    for row in cr:
-        row["vardiya_gunleri"] = _json_gunleri_metne(row.get("vardiya_gunleri"))
-    st.dataframe(pd.DataFrame(cr), width='stretch')
 
 def _sayfa_oneri():
     st.subheader("Yağcı öneri (en fazla 5, skor 5 en iyi)")
