@@ -101,13 +101,13 @@ def init_db():
             problemli_yagci_id INTEGER,
             sorun_metni TEXT,
             vardiya_notu TEXT,
-            carkci_vardiya TEXT,
+            vardiya_gunleri TEXT,
             FOREIGN KEY(gemi_id) REFERENCES gemi(id),
             FOREIGN KEY(problemli_yagci_id) REFERENCES personel(id)
         )
     """)
 
-    # Eksik sütunları ekle
+    # Eksik sütunları ekle (personel)
     cursor.execute("PRAGMA table_info(personel)")
     existing_columns = [col[1] for col in cursor.fetchall()]
     if "gemi_id_list" not in existing_columns:
@@ -133,13 +133,18 @@ def init_db():
     if "aktif" not in existing_columns:
         cursor.execute("ALTER TABLE personel ADD COLUMN aktif INTEGER DEFAULT 1")
 
+    # Carkci tablosuna vardiya_gunleri ekle
+    cursor.execute("PRAGMA table_info(carkci)")
+    carkci_cols = [col[1] for col in cursor.fetchall()]
+    if "vardiya_gunleri" not in carkci_cols:
+        cursor.execute("ALTER TABLE carkci ADD COLUMN vardiya_gunleri TEXT")
+
     conn.commit()
     conn.close()
 
 # ---------- KONFİG ----------
 load_dotenv()
 def get_admin_credentials():
-    # Streamlit Cloud secrets öncelikli
     if hasattr(st, "secrets") and "ORDINO_ADMIN_USER" in st.secrets:
         return st.secrets["ORDINO_ADMIN_USER"], st.secrets["ORDINO_ADMIN_PASSWORD"]
     else:
@@ -211,7 +216,7 @@ def izinde_mi(personel_id: int, tarih: date) -> bool:
             return True
     return False
 
-# ---------- ÖNERİ MOTORU (kendi mantığınızla değiştirin) ----------
+# ---------- ÖNERİ MOTORU ----------
 def onerileri_hesapla(gemi_id: int, makine_tipi_id: int, hedef_tarih: date, cikan_personel_id: int = None, limit: int = 5):
     personeller = sql_all("SELECT id, ad, soyad FROM personel WHERE aktif = 1")
     return personeller[:limit]
@@ -331,8 +336,8 @@ def _sayfa_excel():
                 if not yeni_mad.strip():
                     st.error("Makine tipi adı boş olamaz.")
                 else:
-                    # Aynı ada sahip başka bir kayıt var mı kontrol et
-                    existing = sql_one("SELECT id FROM makine_tipi WHERE ad = ? AND id != ?", (yeni_mad.strip(), m_sec["id"]))
+                    # Büyük/küçük harf duyarsız kontrol
+                    existing = sql_one("SELECT id FROM makine_tipi WHERE LOWER(ad) = LOWER(?) AND id != ?", (yeni_mad.strip(), m_sec["id"]))
                     if existing:
                         st.error(f"'{yeni_mad.strip()}' adında başka bir makine tipi zaten var.")
                     else:
@@ -505,9 +510,21 @@ def _sayfa_izin():
     pid = st.selectbox("Personel", [r["id"] for r in plist],
                        format_func=lambda i: f"{next(r['ad'] for r in plist if r['id']==i)} {next(r['soyad'] for r in plist if r['id']==i)}",
                        key="izin_pid")
-    c1, c2 = st.columns(2)
-    bas = c1.date_input("Başlangıç", value=date.today(), key="izin_bas")
-    bit = c2.date_input("Bitiş", value=date.today(), key="izin_bit")
+    col1, col2 = st.columns(2)
+    with col1:
+        bas = st.date_input("Başlangıç", value=date.today(), key="izin_bas")
+    with col2:
+        bit = st.date_input("Bitiş", value=date.today(), key="izin_bit")
+    
+    # Haftalık izin kısayolu
+    if st.button("Bu hafta (Pazartesi - Cuma)"):
+        today = date.today()
+        start = today - timedelta(days=today.weekday())  # Pazartesi
+        end = start + timedelta(days=4)  # Cuma
+        bas = start
+        bit = end
+        st.rerun()
+    
     gun = gun_sayisi(bas, bit)
     st.write(f"Hesaplanan gün sayısı: **{gun}**")
     ucb = st.checkbox("Pazartesi vardiya günü izni → 3 gün (Pzt–Sal–Çar) uygula", key="izin_ucb")
@@ -533,30 +550,52 @@ def _sayfa_carkci():
     st.subheader("Çarkçı kayıtları")
     gemiler = sql_all("SELECT id, ad FROM gemi ORDER BY ad")
     yagcilar = sql_all("SELECT id, ad, soyad FROM personel WHERE aktif = 1 ORDER BY ad")
-    if not gemiler or not yagcilar:
-        st.warning("Gemi ve personel gerekli.")
+    if not gemiler:
+        st.warning("Gemi gerekli.")
         return
     ad = st.text_input("Çarkçı adı", key="carkci_ad")
     soyad = st.text_input("Çarkçı soyadı", key="carkci_soyad")
     gid = st.selectbox("Gemi", [r["id"] for r in gemiler], format_func=lambda i: next(r["ad"] for r in gemiler if r["id"] == i), key="carkci_gemi")
-    carkci_vardiya = st.selectbox("Çarkçının vardiyası", VARDIYA_TIPLERI, key="carkci_vardiya")
-    yid = st.selectbox("Sorunlu yağcı (personel)", [r["id"] for r in yagcilar],
-                       format_func=lambda i: f"{next(r['ad'] for r in yagcilar if r['id']==i)} {next(r['soyad'] for r in yagcilar if r['id']==i)}",
-                       key="carkci_yagci")
-    sorun = st.text_area("Sorun / açıklama", key="carkci_sorun")
+    
+    # Vardiya günleri çoklu seçim
+    carkci_gunler = st.multiselect("Çarkçının vardiya günleri", GUNLER_TR, key="carkci_gunler")
+    carkci_gunler_json = json.dumps([GUNLER_TR.index(g) for g in carkci_gunler]) if carkci_gunler else "[]"
+    
+    # Sorunlu yağcı: isteğe bağlı
+    yagci_options = [{"id": None, "ad": "Seçilmedi", "soyad": ""}] + yagcilar
+    yid = st.selectbox(
+        "Sorunlu yağcı (isteğe bağlı)",
+        options=yagci_options,
+        format_func=lambda x: f"{x['ad']} {x['soyad']}".strip() if x['id'] else "Seçilmedi",
+        key="carkci_yagci"
+    )
+    sorun = st.text_area("Sorun / açıklama (isteğe bağlı)", key="carkci_sorun")
     vn = st.text_input("Çarkçı vardiya notu", key="carkci_not")
-    if st.button("Çarkçı kaydı oluştur ve yağcıyı öneri dışı bırak", key="btn_carkci_kaydet"):
-        sql_run("""INSERT INTO carkci(ad, soyad, gemi_id, problemli_yagci_id, sorun_metni, vardiya_notu, carkci_vardiya)
-                   VALUES (?,?,?,?,?,?,?)""", (ad, soyad, gid, yid, sorun, vn, carkci_vardiya))
-        sql_run("UPDATE personel SET carkci_ile_sorun = 1, carkci_sorun_notu = ? WHERE id = ?", (sorun.strip() or None, yid))
-        st.success("Kaydedildi; yağcı öneri motorunda elendi.")
+    
+    if st.button("Çarkçı kaydı oluştur", key="btn_carkci_kaydet"):
+        yagci_id = yid['id'] if yid and yid.get('id') else None
+        sql_run("""
+            INSERT INTO carkci(ad, soyad, gemi_id, problemli_yagci_id, sorun_metni, vardiya_notu, vardiya_gunleri)
+            VALUES (?,?,?,?,?,?,?)
+        """, (ad, soyad, gid, yagci_id, sorun, vn, carkci_gunler_json))
+        if yagci_id:
+            sql_run("UPDATE personel SET carkci_ile_sorun = 1, carkci_sorun_notu = ? WHERE id = ?", (sorun.strip() or None, yagci_id))
+            st.success("Kaydedildi; yağcı öneri motorunda elendi.")
+        else:
+            st.success("Çarkçı kaydedildi, sorunlu yağcı belirtilmedi.")
         st.rerun()
+    
     st.divider()
     cr = sql_all("""
-        SELECT c.id, c.ad, c.soyad, g.ad AS gemi, c.carkci_vardiya, p.ad || ' ' || p.soyad AS yagci, c.sorun_metni
-        FROM carkci c LEFT JOIN gemi g ON g.id = c.gemi_id LEFT JOIN personel p ON p.id = c.problemli_yagci_id
+        SELECT c.id, c.ad, c.soyad, g.ad AS gemi, c.vardiya_gunleri, 
+               p.ad || ' ' || p.soyad AS yagci, c.sorun_metni
+        FROM carkci c 
+        LEFT JOIN gemi g ON g.id = c.gemi_id 
+        LEFT JOIN personel p ON p.id = c.problemli_yagci_id
         ORDER BY c.id DESC LIMIT 30
     """)
+    for row in cr:
+        row["vardiya_gunleri"] = _json_gunleri_metne(row.get("vardiya_gunleri"))
     st.dataframe(pd.DataFrame(cr), width='stretch')
 
 def _sayfa_oneri():
@@ -615,7 +654,7 @@ def _sayfa_bilgi():
 # ---------- ANA ----------
 def main():
     st.set_page_config(page_title="Ordino Yağcı Planlaması", page_icon="⚓", layout="wide", initial_sidebar_state="collapsed")
-    # Basit CSS (isteğe bağlı, mevcut stillerinizi ekleyebilirsiniz)
+    # Basit CSS (isteğe bağlı)
     st.markdown("""
         <style>
         /* stiller */
