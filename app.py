@@ -652,11 +652,7 @@ def main():
     </style>""", unsafe_allow_html=True)
 
     init_db()
-    st.session_state["ordino_auth"] = True  # Login bypass — kaldırmak için bu satırı silin
-    if not st.session_state.get("ordino_auth"):
-        _login_form(); return
-    _logout()
-
+    # Kimlik doğrulama kaldırıldı – direkt uygulama başlar
     tab1,tab2,tab3,tab4,tab5,tab6 = st.tabs(
         ["🚢 Gemiler","👷 Personel","📅 İzin","⚙️ Çarkçı","✦ Öneri","📊 Bilgi"])
     with tab1: _sayfa_excel()
