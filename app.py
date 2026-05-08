@@ -1,5 +1,5 @@
 """
-Ordino Yağcı Planlaması — Tüm Özellikler Dahil (Plotly'siz, sadece Streamlit grafikleriyle)
+Ordino Yağcı Planlaması — Tüm Özellikler Dahil (puan_kirma hatası düzeltildi)
 Çalıştır: streamlit run app.py
 """
 from __future__ import annotations
@@ -98,10 +98,10 @@ def init_db():
         FOREIGN KEY(makine_tipi_id) REFERENCES makine_tipi(id) ON DELETE CASCADE
     )""")
 
-    # Eksik sütunları ekle
+    # Eksik sütunları ekle (personel)
     c.execute("PRAGMA table_info(personel)")
     p_cols = [col[1] for col in c.fetchall()]
-    alter_queries = [
+    personel_columns = [
         ("gemi_id_list", "TEXT"),
         ("makine_tipi_id_list", "TEXT"),
         ("gemiden_cekilme", "INTEGER DEFAULT 0"),
@@ -114,21 +114,34 @@ def init_db():
         ("performans_notu", "TEXT"),
         ("aktif", "INTEGER DEFAULT 1")
     ]
-    for col, typ in alter_queries:
+    for col, typ in personel_columns:
         if col not in p_cols:
             try:
                 c.execute(f"ALTER TABLE personel ADD COLUMN {col} {typ}")
-            except: pass
+            except sqlite3.OperationalError:
+                pass  # Sütun zaten varsa hata verme
 
+    # Eksik sütunları ekle (izin)
     c.execute("PRAGMA table_info(izin)")
     if "gunler_json" not in [col[1] for col in c.fetchall()]:
-        c.execute("ALTER TABLE izin ADD COLUMN gunler_json TEXT")
+        try:
+            c.execute("ALTER TABLE izin ADD COLUMN gunler_json TEXT")
+        except sqlite3.OperationalError:
+            pass
 
+    # Eksik sütunları ekle (carkci)
     c.execute("PRAGMA table_info(carkci)")
-    if "vardiya_gunleri" not in [col[1] for col in c.fetchall()]:
-        c.execute("ALTER TABLE carkci ADD COLUMN vardiya_gunleri TEXT")
-    if "puan_kirma" not in [col[1] for col in c.fetchall()]:
-        c.execute("ALTER TABLE carkci ADD COLUMN puan_kirma INTEGER DEFAULT 0")
+    c_cols = [col[1] for col in c.fetchall()]
+    if "vardiya_gunleri" not in c_cols:
+        try:
+            c.execute("ALTER TABLE carkci ADD COLUMN vardiya_gunleri TEXT")
+        except sqlite3.OperationalError:
+            pass
+    if "puan_kirma" not in c_cols:
+        try:
+            c.execute("ALTER TABLE carkci ADD COLUMN puan_kirma INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
 
     conn.commit()
     conn.close()
@@ -370,9 +383,9 @@ def _sayfa_personel():
         s["vardiya_gunleri"] = _json_gunleri_metne(s.get("vardiya_gunleri"))
         s["izin_tercih_gunleri"] = _json_gunleri_metne(s.get("izin_tercih_gunleri"))
         mids = _id_listesi(s.get("makine_tipi_id_list"))
-        s["makine_tipleri"] = ", ".join([m for m in mids if m]) if mids else "-"
+        s["makine_tipleri"] = ", ".join([str(m) for m in mids if m]) if mids else "-"
         gids = _id_listesi(s.get("gemi_id_list"))
-        s["gemiler"] = ", ".join([g for g in gids if g]) if gids else (s.get("gemi") or "-")
+        s["gemiler"] = ", ".join([str(g) for g in gids if g]) if gids else (s.get("gemi") or "-")
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     if not gemiler or not makineler:
@@ -625,7 +638,7 @@ def _sayfa_oneri():
                         (p_sec["id"], gid, mid, ht.isoformat()))
                 st.success("Vardiya plana kaydedildi.")
 
-# ---------- SAYFA: BİLGİ (Streamlit native grafikleriyle) ----------
+# ---------- SAYFA: BİLGİ ----------
 def _sayfa_bilgi():
     st.subheader("📊 Durum Özeti ve Grafikler")
     def cnt(q,p=()): return (sql_one(q,p) or {"c":0})["c"]
