@@ -1,5 +1,5 @@
 """
-Ordino Yağcı Planlaması — Tüm Özellikler Dahil (Çakışma kontrolü, filtreleme, dashboard, dışa aktar)
+Ordino Yağcı Planlaması — Tüm Özellikler Dahil (Plotly'siz, sadece Streamlit grafikleriyle)
 Çalıştır: streamlit run app.py
 """
 from __future__ import annotations
@@ -13,7 +13,6 @@ import io
 
 import pandas as pd
 import streamlit as st
-import plotly.express as px
 from dotenv import load_dotenv
 import os
 
@@ -88,7 +87,6 @@ def init_db():
         FOREIGN KEY(problemli_yagci_id) REFERENCES personel(id) ON DELETE SET NULL
     )""")
 
-    # Yeni tablo: vardiya planı (çakışma kontrolü için)
     c.execute("""CREATE TABLE IF NOT EXISTS vardiya_plan (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         personel_id INTEGER NOT NULL,
@@ -214,19 +212,16 @@ def _takvim_html(yil: int, ay: int, isaretli: set[date]) -> str:
     html += "</div></div>"
     return html
 
-# ---------- ÖNERİ MOTORU (gelişmiş) ----------
+# ---------- ÖNERİ MOTORU ----------
 def vardiya_plani_kontrol(gemi_id, makine_tipi_id, tarih):
-    """Belirli bir gemi, makine tipi ve tarih için atanmış personel var mı?"""
     t_str = tarih.isoformat()
     row = sql_one("SELECT personel_id FROM vardiya_plan WHERE gemi_id=? AND makine_tipi_id=? AND tarih=?", 
                   (gemi_id, makine_tipi_id, t_str))
     return row["personel_id"] if row else None
 
 def onerileri_hesapla(gemi_id, makine_tipi_id, hedef_tarih, cikan_id=None, limit=5):
-    # Zaten atanmış birisi var mı?
     mevcut_atanmis = vardiya_plani_kontrol(gemi_id, makine_tipi_id, hedef_tarih)
     if mevcut_atanmis:
-        # Atanmış kişiyi getir, önerilerde göster ama uyarı ver
         p = sql_one("SELECT id,ad,soyad,vardiya_tipi,gemi_id,gemi_id_list,makine_tipi_id,makine_tipi_id_list,carkci_ile_sorun,is_kalitesi FROM personel WHERE id=?", (mevcut_atanmis,))
         if p:
             return [{
@@ -243,22 +238,14 @@ def onerileri_hesapla(gemi_id, makine_tipi_id, hedef_tarih, cikan_id=None, limit
     for p in tum:
         if cikan_id and p["id"] == cikan_id: continue
         if izinde_mi(p["id"], hedef_tarih): continue
-
-        # Makine kontrolü
         mids = _id_listesi(p.get("makine_tipi_id_list")) or ([p["makine_tipi_id"]] if p.get("makine_tipi_id") else [])
         if makine_tipi_id not in mids: continue
-
-        # Gemi kontrolü
         gids = _id_listesi(p.get("gemi_id_list")) or ([p.get("gemi_id")] if p.get("gemi_id") else [])
         if gemi_id not in gids: continue
-
         if p.get("carkci_ile_sorun"): continue
-
-        # Puanlama
         vardiya_puan = {"IZINCI":100,"GRUPCU":80,"SABIT":60,"8_5":40}.get(p.get("vardiya_tipi",""),50)
         kalite_puan = (p.get("is_kalitesi") or 3) * 10
         toplam_puan = vardiya_puan + kalite_puan
-
         sonuclar.append({**p, "puan": toplam_puan, "uyari_8_5": p.get("vardiya_tipi")=="8_5", "zaten_atanmis": False})
     sonuclar.sort(key=lambda x: -x["puan"])
     return sonuclar[:limit]
@@ -351,13 +338,12 @@ def _sayfa_excel():
                         st.success("Silindi."); st.rerun()
             else: st.info("Makine tipi yok.")
 
-# ---------- SAYFA: PERSONEL (filtre eklendi) ----------
+# ---------- SAYFA: PERSONEL ----------
 def _sayfa_personel():
     st.subheader("👷 Personel Yönetimi")
     gemiler   = sql_all("SELECT id,ad FROM gemi ORDER BY ad")
     makineler = sql_all("SELECT id,ad FROM makine_tipi ORDER BY ad")
 
-    # Filtre butonları
     st.caption("Hızlı Filtrele:")
     cols = st.columns(len(VARDIYA_TIPLERI)+1)
     if cols[0].button("Tümü", key="f_hepsi"):
@@ -531,7 +517,7 @@ def _sayfa_izin():
             sql_run("DELETE FROM izin WHERE id=?", (iz["id"],))
             st.success("İzin silindi."); st.rerun()
 
-# ---------- SAYFA: ÇARKÇI (puan kırma eklendi) ----------
+# ---------- SAYFA: ÇARKÇI ----------
 def _sayfa_carkci():
     st.subheader("⚙️ Çarkçı Kayıtları")
     gemiler  = sql_all("SELECT id,ad FROM gemi ORDER BY ad")
@@ -560,7 +546,6 @@ def _sayfa_carkci():
                        vardiya_notu,carkci_vardiya,vardiya_gunleri,puan_kirma) VALUES(?,?,?,?,?,?,?,?,?)""",
                     (ad,soyad,gid,pid_p,sorun,vn,ck_vt,gun_j,puan_kirma))
             if pid_p:
-                # Puan kırma işlemi: mevcut is_kalitesi değerini düşür (minimum 1)
                 mevcut_puan = sql_one("SELECT is_kalitesi FROM personel WHERE id=?", (pid_p,))
                 if mevcut_puan:
                     yeni_puan = max(1, (mevcut_puan["is_kalitesi"] or 3) - puan_kirma)
@@ -579,7 +564,7 @@ def _sayfa_carkci():
     for r in cr: r["vardiya_gunleri"] = _json_gunleri_metne(r.get("vardiya_gunleri"))
     st.dataframe(pd.DataFrame(cr), use_container_width=True, hide_index=True)
 
-# ---------- SAYFA: ÖNERİ (çakışma kontrolü ve vardiya kaydı) ----------
+# ---------- SAYFA: ÖNERİ ----------
 def _sayfa_oneri():
     st.subheader("✦ Yağcı Öneri ve Vardiya Planı")
     gemiler   = sql_all("SELECT id,ad FROM gemi ORDER BY ad")
@@ -626,15 +611,12 @@ def _sayfa_oneri():
                     if r.get("uyari_8_5"):
                         st.warning(f"⚠️ {r['ad_soyad']} — 8/5 personeli, vardiya uyumunu kontrol edin.")
 
-    # Vardiya atama butonu (önerilenler arasından seçim yapılabilir)
     st.divider()
     st.markdown("#### Vardiya Ata")
     personel_sec = st.selectbox("Personel Seç", [f"{p['ad']} {p['soyad']}" for p in sql_all("SELECT id,ad,soyad FROM personel WHERE aktif=1 ORDER BY ad")], key="vardiya_p")
     if st.button("✅ Bu Vardiyayı Kaydet", key="btn_vardiya_kaydet"):
-        # Seçilen personelin id'sini bul
         p_sec = sql_one("SELECT id FROM personel WHERE ad||' '||soyad=?", (personel_sec,))
         if p_sec:
-            # Çakışma kontrolü
             mevcut = vardiya_plani_kontrol(gid, mid, ht)
             if mevcut and mevcut != p_sec["id"]:
                 st.error(f"Bu gemi, makine tipi ve tarih için zaten başka bir personel atanmış (ID: {mevcut}).")
@@ -643,7 +625,7 @@ def _sayfa_oneri():
                         (p_sec["id"], gid, mid, ht.isoformat()))
                 st.success("Vardiya plana kaydedildi.")
 
-# ---------- SAYFA: BİLGİ (grafik eklendi) ----------
+# ---------- SAYFA: BİLGİ (Streamlit native grafikleriyle) ----------
 def _sayfa_bilgi():
     st.subheader("📊 Durum Özeti ve Grafikler")
     def cnt(q,p=()): return (sql_one(q,p) or {"c":0})["c"]
@@ -652,20 +634,20 @@ def _sayfa_bilgi():
     col2.metric("Toplam Gemi", cnt("SELECT COUNT(*) AS c FROM gemi"))
     col3.metric("Bugün İzinde", cnt("SELECT COUNT(*) AS c FROM izin WHERE date('now') BETWEEN baslangic AND bitis"))
 
-    # Pasta grafiği: Gemilere göre personel dağılımı
+    # Gemilere göre personel dağılımı (bar chart)
     gemi_bazli = sql_all("""SELECT g.ad AS gemi, COUNT(p.id) AS sayi
         FROM gemi g LEFT JOIN personel p ON p.gemi_id=g.id GROUP BY g.id ORDER BY sayi DESC""")
     if gemi_bazli:
-        df = pd.DataFrame(gemi_bazli)
-        fig = px.pie(df, values='sayi', names='gemi', title='Gemilere Göre Personel Dağılımı')
-        st.plotly_chart(fig, use_container_width=True)
+        df = pd.DataFrame(gemi_bazli).set_index('gemi')
+        st.subheader("Gemilere Göre Personel Dağılımı")
+        st.bar_chart(df, use_container_width=True)
 
     # Vardiya tiplerine göre dağılım (bar chart)
     vardiya_dagilim = sql_all("SELECT vardiya_tipi, COUNT(*) AS sayi FROM personel WHERE aktif=1 GROUP BY vardiya_tipi")
     if vardiya_dagilim:
-        df2 = pd.DataFrame(vardiya_dagilim)
-        fig2 = px.bar(df2, x='vardiya_tipi', y='sayi', title='Vardiya Tiplerine Göre Personel', labels={'vardiya_tipi':'Vardiya Tipi','sayi':'Kişi'})
-        st.plotly_chart(fig2, use_container_width=True)
+        df2 = pd.DataFrame(vardiya_dagilim).set_index('vardiya_tipi')
+        st.subheader("Vardiya Tiplerine Göre Personel")
+        st.bar_chart(df2, use_container_width=True)
 
     # Bugün izinde olanlar
     izinliler = sql_all("""SELECT p.ad,p.soyad,i.baslangic,i.bitis,i.gun_sayisi
