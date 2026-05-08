@@ -1,5 +1,5 @@
 """
-Ordino Yağcı Planlaması — Koyu Tema, Tüm Özellikler
+Ordino Yağcı Planlaması — Koyu Tema + Toplu Veri, Rotasyon, Uyarılar, Raporlama
 Çalıştır: streamlit run app.py
 """
 from __future__ import annotations
@@ -10,6 +10,7 @@ import calendar as _cal
 from datetime import date, timedelta
 from pathlib import Path
 import io
+from typing import Optional
 
 import pandas as pd
 import streamlit as st
@@ -98,7 +99,7 @@ def init_db():
         FOREIGN KEY(makine_tipi_id) REFERENCES makine_tipi(id) ON DELETE CASCADE
     )""")
 
-    # Eksik sütunları ekle
+    # Eksik sütunları ekle (personel)
     c.execute("PRAGMA table_info(personel)")
     p_cols = [col[1] for col in c.fetchall()]
     personel_columns = [
@@ -277,7 +278,7 @@ def to_dict_rows(oneriler):
         })
     return rows
 
-# ---------- SAYFA: GEMİLER ----------
+# ---------- SAYFA: GEMİLER (Toplu Excel eklendi) ----------
 def _sayfa_excel():
     st.subheader("🚢 Gemiler & Makine Yönetimi")
     with st.form("gemi_ekle_form", clear_on_submit=True):
@@ -295,6 +296,38 @@ def _sayfa_excel():
                 except: st.warning("Makine tipi zaten kayıtlı.")
                 st.success("Başarıyla eklendi.")
                 st.rerun()
+
+    # --- Toplu Excel yükleme ---
+    with st.expander("📤 Excel ile Toplu Ekle (Gemi & Makine Tipi)"):
+        st.markdown("Excel dosyanızda **Gemi Adı** ve **Makine Tipi** sütunları olmalıdır.")
+        uploaded_file = st.file_uploader("Excel dosyası seçin", type=["xlsx", "xls"], key="toplu_gemi")
+        if uploaded_file is not None:
+            try:
+                df = pd.read_excel(uploaded_file)
+                if 'Gemi Adı' in df.columns and 'Makine Tipi' in df.columns:
+                    st.dataframe(df.head(), use_container_width=True)
+                    if st.button("Toplu Ekle", key="btn_toplu_gemi"):
+                        eklenen_gemi = 0
+                        eklenen_mak = 0
+                        for _, row in df.iterrows():
+                            gemi_ad = str(row['Gemi Adı']).strip()
+                            mak_ad  = str(row['Makine Tipi']).strip()
+                            if gemi_ad:
+                                try:
+                                    sql_run("INSERT INTO gemi(ad) VALUES(?)", (gemi_ad,))
+                                    eklenen_gemi += 1
+                                except: pass
+                            if mak_ad:
+                                try:
+                                    sql_run("INSERT INTO makine_tipi(ad) VALUES(?)", (mak_ad,))
+                                    eklenen_mak += 1
+                                except: pass
+                        st.success(f"Toplu ekleme tamamlandı: {eklenen_gemi} gemi, {eklenen_mak} makine tipi eklendi.")
+                        st.rerun()
+                else:
+                    st.error("Excel dosyasında 'Gemi Adı' ve 'Makine Tipi' sütunları bulunamadı.")
+            except Exception as e:
+                st.error(f"Excel okuma hatası: {e}")
 
     st.divider()
     g_rows = sql_all("""SELECT g.id,g.ad,g.kod,COUNT(p.id) AS personel_sayisi
@@ -575,7 +608,7 @@ def _sayfa_carkci():
     for r in cr: r["vardiya_gunleri"] = _json_gunleri_metne(r.get("vardiya_gunleri"))
     st.dataframe(pd.DataFrame(cr), use_container_width=True, hide_index=True)
 
-# ---------- SAYFA: ÖNERİ ----------
+# ---------- SAYFA: ÖNERİ (Rotasyon eklendi) ----------
 def _sayfa_oneri():
     st.subheader("✦ Yağcı Öneri ve Vardiya Planı")
     gemiler   = sql_all("SELECT id,ad FROM gemi ORDER BY ad")
@@ -622,8 +655,43 @@ def _sayfa_oneri():
                     if r.get("uyari_8_5"):
                         st.warning(f"⚠️ {r['ad_soyad']} — 8/5 personeli, vardiya uyumunu kontrol edin.")
 
+    # ---- Rotasyon Planı Oluştur ----
     st.divider()
-    st.markdown("#### Vardiya Ata")
+    st.subheader("🔄 Rotasyon Planı (Otomatik)")
+
+    col_rot1, col_rot2 = st.columns(2)
+    with col_rot1:
+        rot_bas = st.date_input("Başlangıç Tarihi", value=date.today(), key="rot_bas", format="DD.MM.YYYY")
+    with col_rot2:
+        rot_bit = st.date_input("Bitiş Tarihi", value=date.today() + timedelta(days=7), key="rot_bit", format="DD.MM.YYYY")
+
+    # Haftanın günlerini seç
+    rot_gunler = st.multiselect("Planlanacak Günler", GUNLER_TR, default=["Pazartesi","Salı","Çarşamba","Perşembe","Cuma"], key="rot_gunler")
+    rot_gun_index = [GUNLER_TR.index(g) for g in rot_gunler]
+
+    if st.button("📆 Rotasyon Planını Oluştur", key="btn_rot"):
+        if not rot_gunler:
+            st.error("En az bir gün seçin.")
+        else:
+            planlandi = 0
+            current = rot_bas
+            while current <= rot_bit:
+                if current.weekday() in rot_gun_index:
+                    # o gün için zaten atama var mı?
+                    mevcut = vardiya_plani_kontrol(gid, mid, current)
+                    if not mevcut:
+                        oneriler = onerileri_hesapla(gid, mid, current, cikan_id=None, limit=1)
+                        if oneriler and not oneriler[0].get("zaten_atanmis"):
+                            sql_run("INSERT INTO vardiya_plan(personel_id, gemi_id, makine_tipi_id, tarih) VALUES(?,?,?,?)",
+                                    (oneriler[0]["id"], gid, mid, current.isoformat()))
+                            planlandi += 1
+                current += timedelta(days=1)
+            st.success(f"Rotasyon planı oluşturuldu. {planlandi} yeni vardiya eklendi.")
+            st.rerun()
+
+    # Tekil vardiya ata
+    st.divider()
+    st.markdown("#### Tekil Vardiya Ata")
     personel_sec = st.selectbox("Personel Seç", [f"{p['ad']} {p['soyad']}" for p in sql_all("SELECT id,ad,soyad FROM personel WHERE aktif=1 ORDER BY ad")], key="vardiya_p")
     if st.button("✅ Bu Vardiyayı Kaydet", key="btn_vardiya_kaydet"):
         p_sec = sql_one("SELECT id FROM personel WHERE ad||' '||soyad=?", (personel_sec,))
@@ -636,15 +704,63 @@ def _sayfa_oneri():
                         (p_sec["id"], gid, mid, ht.isoformat()))
                 st.success("Vardiya plana kaydedildi.")
 
-# ---------- SAYFA: BİLGİ ----------
+# ---------- SAYFA: BİLGİ (Uyarılar & Raporlama) ----------
 def _sayfa_bilgi():
-    st.subheader("📊 Durum Özeti ve Grafikler")
+    st.subheader("📊 Durum Özeti, Uyarılar ve Raporlar")
+
+    # ---- Uyarılar Bölümü ----
+    st.markdown("### 🚨 Uyarılar")
+    uyari_say = 0
+
+    # Bugün izinli olanlar
+    bugun_izinliler = sql_all("""SELECT p.ad, p.soyad, i.baslangic, i.bitis
+        FROM izin i JOIN personel p ON p.id=i.personel_id
+        WHERE date('now') BETWEEN i.baslangic AND i.bitis""")
+    if bugun_izinliler:
+        uyari_say += len(bugun_izinliler)
+        with st.expander(f"🟠 Bugün İzinde ({len(bugun_izinliler)} kişi)", expanded=True):
+            df_iz = pd.DataFrame(bugun_izinliler)
+            st.dataframe(df_iz, use_container_width=True, hide_index=True)
+
+    # Yarın başlayacak izinler
+    yarin = (date.today() + timedelta(days=1)).isoformat()
+    yarin_izin = sql_all("""SELECT p.ad, p.soyad, i.baslangic, i.bitis
+        FROM izin i JOIN personel p ON p.id=i.personel_id
+        WHERE i.baslangic = ?""", (yarin,))
+    if yarin_izin:
+        uyari_say += len(yarin_izin)
+        with st.expander(f"🔵 Yarın Başlayacak İzinler ({len(yarin_izin)} kişi)"):
+            st.dataframe(pd.DataFrame(yarin_izin), use_container_width=True, hide_index=True)
+
+    # Personeli olmayan gemiler
+    bos_gemiler = sql_all("""SELECT g.ad FROM gemi g LEFT JOIN personel p ON p.gemi_id = g.id
+                             WHERE p.id IS NULL""")
+    if bos_gemiler:
+        uyari_say += len(bos_gemiler)
+        with st.expander("⚠️ Personeli Olmayan Gemiler"):
+            st.write(", ".join([g['ad'] for g in bos_gemiler]))
+
+    # Çarkçı sorunu olan aktif yağcılar
+    sorunlu_yagci = sql_all("""SELECT ad, soyad, carkci_sorun_notu FROM personel
+                                WHERE carkci_ile_sorun=1 AND aktif=1""")
+    if sorunlu_yagci:
+        uyari_say += len(sorunlu_yagci)
+        with st.expander("❗ Çarkçı Sorunu Olan Aktif Yağcılar"):
+            st.dataframe(pd.DataFrame(sorunlu_yagci), use_container_width=True, hide_index=True)
+
+    if uyari_say == 0:
+        st.success("Hiçbir uyarı yok, her şey yolunda.")
+
+    st.divider()
+
+    # ---- İstatistikler ----
     def cnt(q,p=()): return (sql_one(q,p) or {"c":0})["c"]
     col1, col2, col3 = st.columns(3)
     col1.metric("Toplam Personel", cnt("SELECT COUNT(*) AS c FROM personel"))
     col2.metric("Toplam Gemi", cnt("SELECT COUNT(*) AS c FROM gemi"))
-    col3.metric("Bugün İzinde", cnt("SELECT COUNT(*) AS c FROM izin WHERE date('now') BETWEEN baslangic AND bitis"))
+    col3.metric("Bugün İzinde", len(bugun_izinliler) if bugun_izinliler else 0)
 
+    # Grafikler
     gemi_bazli = sql_all("""SELECT g.ad AS gemi, COUNT(p.id) AS sayi
         FROM gemi g LEFT JOIN personel p ON p.gemi_id=g.id GROUP BY g.id ORDER BY sayi DESC""")
     if gemi_bazli:
@@ -658,13 +774,26 @@ def _sayfa_bilgi():
         st.subheader("Vardiya Tiplerine Göre Personel")
         st.bar_chart(df2, use_container_width=True)
 
-    izinliler = sql_all("""SELECT p.ad,p.soyad,i.baslangic,i.bitis,i.gun_sayisi
-        FROM izin i JOIN personel p ON p.id=i.personel_id
-        WHERE date('now') BETWEEN i.baslangic AND i.bitis ORDER BY p.ad""")
-    if izinliler:
-        st.markdown("#### 🟠 Bugün İzinde Olan Personel")
-        st.dataframe(pd.DataFrame(izinliler), use_container_width=True, hide_index=True)
+    # ---- Çarkçı Performans Raporu ----
+    st.divider()
+    st.subheader("📈 Çarkçı Performans Raporu")
+    carkci_rapor = sql_all("""SELECT c.ad, c.soyad, COUNT(*) as kayit_sayisi, SUM(c.puan_kirma) as toplam_puan_kirma
+        FROM carkci c WHERE c.problemli_yagci_id NOT NULL
+        GROUP BY c.ad, c.soyad ORDER BY toplam_puan_kirma DESC""")
+    if carkci_rapor:
+        st.dataframe(pd.DataFrame(carkci_rapor), use_container_width=True, hide_index=True)
+    else:
+        st.info("Henüz puan kırma kaydı yok.")
 
+    # Gemi bazında ortalama iş kalitesi
+    st.subheader("📊 Gemi Bazında Ortalama İş Kalitesi")
+    kalite_rapor = sql_all("""SELECT g.ad, ROUND(AVG(p.is_kalitesi),1) as ort_kalite, COUNT(p.id) as kisi
+        FROM personel p JOIN gemi g ON p.gemi_id = g.id
+        WHERE p.aktif=1 GROUP BY g.id ORDER BY ort_kalite DESC""")
+    if kalite_rapor:
+        st.dataframe(pd.DataFrame(kalite_rapor), use_container_width=True, hide_index=True)
+
+    # Vardiya planı dışa aktar
     st.divider()
     st.markdown("#### 📥 Vardiya Planı Excel Çıktısı")
     plan = sql_all("""SELECT v.tarih, g.ad AS gemi, m.ad AS makine, p.ad||' '||p.soyad AS personel
@@ -695,89 +824,35 @@ def main():
     # Koyu tema CSS
     st.markdown("""
     <style>
-        .stApp {
-            background: #1a1a2e;
-        }
+        .stApp { background: #1a1a2e; }
         .main .block-container {
-            background: #2b2b3d;
-            border-radius: 20px;
-            padding: 2rem 1.5rem;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
-            margin-top: 20px;
-            color: #f0f0f0;
+            background: #2b2b3d; border-radius: 20px; padding: 2rem 1.5rem;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4); margin-top: 20px; color: #f0f0f0;
         }
-        h1, h2, h3, h4, h5, h6, p, span, div, label {
-            color: #f0f0f0 !important;
-        }
-        .stTabs [role="tablist"] {
-            gap: 0.5rem;
-        }
+        h1, h2, h3, h4, h5, h6, p, span, div, label { color: #f0f0f0 !important; }
+        .stTabs [role="tablist"] { gap: 0.5rem; }
         .stTabs [role="tab"] {
-            background: #3a3a4e;
-            border: none;
-            border-radius: 12px;
-            padding: 0.6rem 1rem;
-            color: #cccccc !important;
-            font-weight: 500;
+            background: #3a3a4e; border: none; border-radius: 12px;
+            padding: 0.6rem 1rem; color: #cccccc !important; font-weight: 500;
         }
-        .stTabs [aria-selected="true"] {
-            background: #f3831f;
-            color: #ffffff !important;
-        }
+        .stTabs [aria-selected="true"] { background: #f3831f; color: #ffffff !important; }
         .stButton > button {
-            background: #f3831f;
-            color: white;
-            border: none;
-            border-radius: 12px;
-            padding: 0.5rem 1rem;
-            font-weight: 600;
-            transition: all 0.2s;
+            background: #f3831f; color: white; border: none; border-radius: 12px;
+            padding: 0.5rem 1rem; font-weight: 600; transition: all 0.2s;
         }
-        .stButton > button:hover {
-            background: #d35400;
-            box-shadow: 0 4px 10px rgba(243,131,31,0.6);
-        }
-        .stDataFrame {
-            font-size: 14px;
-            background-color: #2b2b3d;
-        }
-        div[data-testid="stExpander"] div[role="button"] p {
-            color: #f3831f !important;
-            font-weight: 600;
-        }
+        .stButton > button:hover { background: #d35400; box-shadow: 0 4px 10px rgba(243,131,31,0.6); }
+        .stDataFrame { font-size: 14px; background-color: #2b2b3d; }
+        div[data-testid="stExpander"] div[role="button"] p { color: #f3831f !important; font-weight: 600; }
         .stTextInput > div > div > input, .stSelectbox > div > div, .stMultiselect > div > div {
-            background-color: #3a3a4e;
-            color: white;
-            border: 1px solid #555;
+            background-color: #3a3a4e; color: white; border: 1px solid #555;
         }
-        .stDateInput > div > div > input {
-            background-color: #3a3a4e;
-            color: white;
-        }
-        .stSlider > div > div > div {
-            background: #f3831f;
-        }
-        .stWarning {
-            background-color: #5a4a00;
-            color: #ffdd55;
-        }
-        .stError {
-            background-color: #5a1a1a;
-            color: #ff9999;
-        }
-        .stSuccess {
-            background-color: #1a5a2a;
-            color: #99ff99;
-        }
-        .stInfo {
-            background-color: #1a3a5a;
-            color: #99ccff;
-        }
-        /* Tablo başlıkları */
-        .stDataFrame thead tr th {
-            background-color: #3a3a4e !important;
-            color: #f0f0f0 !important;
-        }
+        .stDateInput > div > div > input { background-color: #3a3a4e; color: white; }
+        .stSlider > div > div > div { background: #f3831f; }
+        .stWarning { background-color: #5a4a00; color: #ffdd55; }
+        .stError { background-color: #5a1a1a; color: #ff9999; }
+        .stSuccess { background-color: #1a5a2a; color: #99ff99; }
+        .stInfo { background-color: #1a3a5a; color: #99ccff; }
+        .stDataFrame thead tr th { background-color: #3a3a4e !important; color: #f0f0f0 !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -792,6 +867,15 @@ def main():
     with tab4: _sayfa_carkci()
     with tab5: _sayfa_oneri()
     with tab6: _sayfa_bilgi()
+
+    # Mobil kullanım ipucu
+    st.divider()
+    with st.expander("📱 Telefonda Kullanım (Ana Ekrana Ekle)"):
+        st.markdown("""
+        - **iPhone (Safari):** Alttaki 'Paylaş' butonuna → 'Ana Ekrana Ekle'.
+        - **Android (Chrome):** Menüden 'Uygulama yükle' ya da 'Ana ekrana ekle'.
+        - Böylece uygulamayı telefonunuzda bir uygulama gibi açabilirsiniz.
+        """)
 
 if __name__ == "__main__":
     main()
