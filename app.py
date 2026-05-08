@@ -1,5 +1,5 @@
 """
-Ordino Yağcı Planlaması — Koyu Tema + Toplu Veri, Rotasyon, Uyarılar, Raporlama
+Ordino Yağcı Planlaması — Genel Özet, TERSANE, Gelişmiş Öneri, Mobil Uyumlu
 Çalıştır: streamlit run app.py
 """
 from __future__ import annotations
@@ -10,7 +10,6 @@ import calendar as _cal
 from datetime import date, timedelta
 from pathlib import Path
 import io
-from typing import Optional
 
 import pandas as pd
 import streamlit as st
@@ -147,16 +146,12 @@ def init_db():
 
 # ---------- KONFİG ----------
 load_dotenv()
-def get_admin_credentials():
-    if hasattr(st, "secrets") and "ORDINO_ADMIN_USER" in st.secrets:
-        return st.secrets["ORDINO_ADMIN_USER"], st.secrets["ORDINO_ADMIN_PASSWORD"]
-    return os.getenv("ORDINO_ADMIN_USER","admin"), os.getenv("ORDINO_ADMIN_PASSWORD","123456")
 
 # ---------- YARDIMCI ----------
 GUNLER_TR = ["Pazartesi","Salı","Çarşamba","Perşembe","Cuma","Cumartesi","Pazar"]
 AY_ADLARI = ["","Ocak","Şubat","Mart","Nisan","Mayıs","Haziran",
              "Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"]
-VARDIYA_TIPLERI = ["SABIT","GRUPCU","IZINCI","8_5"]
+VARDIYA_TIPLERI = ["SABIT","GRUPCU","IZINCI","TERSANE","8_5"]  # TERSANE eklendi
 
 def _json_gunleri_metne(v):
     if not v: return "-"
@@ -225,6 +220,14 @@ def _takvim_html(yil: int, ay: int, isaretli: set[date]) -> str:
     return html
 
 # ---------- ÖNERİ MOTORU ----------
+def baska_gemide_mi(personel_id: int, tarih: date, mevcut_gemi_id: int) -> bool:
+    """Aynı gün aynı kişi başka bir gemide/makinede atanmış mı?"""
+    t_str = tarih.isoformat()
+    row = sql_one("""SELECT v.gemi_id FROM vardiya_plan v
+                     WHERE v.personel_id=? AND v.tarih=? AND v.gemi_id != ?""",
+                   (personel_id, t_str, mevcut_gemi_id))
+    return row is not None
+
 def vardiya_plani_kontrol(gemi_id, makine_tipi_id, tarih):
     t_str = tarih.isoformat()
     row = sql_one("SELECT personel_id FROM vardiya_plan WHERE gemi_id=? AND makine_tipi_id=? AND tarih=?", 
@@ -249,16 +252,33 @@ def onerileri_hesapla(gemi_id, makine_tipi_id, hedef_tarih, cikan_id=None, limit
     sonuclar = []
     for p in tum:
         if cikan_id and p["id"] == cikan_id: continue
+        # 1. Öncelik: İzinde olmamak, çakışma olmamak, çarkçı sorunu olmamak
         if izinde_mi(p["id"], hedef_tarih): continue
+        if baska_gemide_mi(p["id"], hedef_tarih, gemi_id): continue  # aynı gün başka gemide
         mids = _id_listesi(p.get("makine_tipi_id_list")) or ([p["makine_tipi_id"]] if p.get("makine_tipi_id") else [])
         if makine_tipi_id not in mids: continue
         gids = _id_listesi(p.get("gemi_id_list")) or ([p.get("gemi_id")] if p.get("gemi_id") else [])
         if gemi_id not in gids: continue
         if p.get("carkci_ile_sorun"): continue
-        vardiya_puan = {"IZINCI":100,"GRUPCU":80,"SABIT":60,"8_5":40}.get(p.get("vardiya_tipi",""),50)
+
+        # 2. Öncelik: İzinci ve Tersane yüksek puan, sonra grupçu, sabit, en son 8_5
+        vardiya = p.get("vardiya_tipi","")
+        if vardiya == "IZINCI":
+            vardiya_puan = 100
+        elif vardiya == "TERSANE":
+            vardiya_puan = 95
+        elif vardiya == "GRUPCU":
+            vardiya_puan = 80
+        elif vardiya == "SABIT":
+            vardiya_puan = 60
+        elif vardiya == "8_5":
+            vardiya_puan = 40
+        else:
+            vardiya_puan = 50
+
         kalite_puan = (p.get("is_kalitesi") or 3) * 10
         toplam_puan = vardiya_puan + kalite_puan
-        sonuclar.append({**p, "puan": toplam_puan, "uyari_8_5": p.get("vardiya_tipi")=="8_5", "zaten_atanmis": False})
+        sonuclar.append({**p, "puan": toplam_puan, "uyari_8_5": vardiya=="8_5", "zaten_atanmis": False})
     sonuclar.sort(key=lambda x: -x["puan"])
     return sonuclar[:limit]
 
@@ -278,7 +298,7 @@ def to_dict_rows(oneriler):
         })
     return rows
 
-# ---------- SAYFA: GEMİLER (Toplu Excel eklendi) ----------
+# ---------- SAYFA: GEMİLER ----------
 def _sayfa_excel():
     st.subheader("🚢 Gemiler & Makine Yönetimi")
     with st.form("gemi_ekle_form", clear_on_submit=True):
@@ -608,7 +628,7 @@ def _sayfa_carkci():
     for r in cr: r["vardiya_gunleri"] = _json_gunleri_metne(r.get("vardiya_gunleri"))
     st.dataframe(pd.DataFrame(cr), use_container_width=True, hide_index=True)
 
-# ---------- SAYFA: ÖNERİ (Rotasyon eklendi) ----------
+# ---------- SAYFA: ÖNERİ ----------
 def _sayfa_oneri():
     st.subheader("✦ Yağcı Öneri ve Vardiya Planı")
     gemiler   = sql_all("SELECT id,ad FROM gemi ORDER BY ad")
@@ -638,6 +658,9 @@ def _sayfa_oneri():
     cik_sec = st.selectbox("Çıkan Yağcı", cik_opts, format_func=lambda x: x[0], index=def_idx, key="on_cikan")
     cik_id  = cik_sec[1]
 
+    # Öneri sistemi açıklaması
+    st.info("💡 **Öneri mantığı:** 1) İzinde/çakışma/çarkçı sorunu olmayan, 2) Mümkünse İZİNCİ ve TERSANE öncelikli.")
+
     if st.button("🔍 Önerileri Hesapla", key="btn_on"):
         out = onerileri_hesapla(gid, mid, ht, cik_id, limit=5)
         rows = to_dict_rows(out)
@@ -665,7 +688,6 @@ def _sayfa_oneri():
     with col_rot2:
         rot_bit = st.date_input("Bitiş Tarihi", value=date.today() + timedelta(days=7), key="rot_bit", format="DD.MM.YYYY")
 
-    # Haftanın günlerini seç
     rot_gunler = st.multiselect("Planlanacak Günler", GUNLER_TR, default=["Pazartesi","Salı","Çarşamba","Perşembe","Cuma"], key="rot_gunler")
     rot_gun_index = [GUNLER_TR.index(g) for g in rot_gunler]
 
@@ -677,7 +699,6 @@ def _sayfa_oneri():
             current = rot_bas
             while current <= rot_bit:
                 if current.weekday() in rot_gun_index:
-                    # o gün için zaten atama var mı?
                     mevcut = vardiya_plani_kontrol(gid, mid, current)
                     if not mevcut:
                         oneriler = onerileri_hesapla(gid, mid, current, cikan_id=None, limit=1)
@@ -697,14 +718,17 @@ def _sayfa_oneri():
         p_sec = sql_one("SELECT id FROM personel WHERE ad||' '||soyad=?", (personel_sec,))
         if p_sec:
             mevcut = vardiya_plani_kontrol(gid, mid, ht)
-            if mevcut and mevcut != p_sec["id"]:
+            # Aynı gün başka gemide çalışıyor mu kontrolü
+            if baska_gemide_mi(p_sec["id"], ht, gid):
+                st.error("Bu personel aynı gün başka bir gemide çalışıyor.")
+            elif mevcut and mevcut != p_sec["id"]:
                 st.error(f"Bu gemi, makine tipi ve tarih için zaten başka bir personel atanmış (ID: {mevcut}).")
             else:
                 sql_run("INSERT INTO vardiya_plan(personel_id, gemi_id, makine_tipi_id, tarih) VALUES(?,?,?,?)",
                         (p_sec["id"], gid, mid, ht.isoformat()))
                 st.success("Vardiya plana kaydedildi.")
 
-# ---------- SAYFA: BİLGİ (Uyarılar & Raporlama) ----------
+# ---------- SAYFA: BİLGİ (Genel Özet, Uyarılar, Raporlama) ----------
 def _sayfa_bilgi():
     st.subheader("📊 Durum Özeti, Uyarılar ve Raporlar")
 
@@ -712,7 +736,6 @@ def _sayfa_bilgi():
     st.markdown("### 🚨 Uyarılar")
     uyari_say = 0
 
-    # Bugün izinli olanlar
     bugun_izinliler = sql_all("""SELECT p.ad, p.soyad, i.baslangic, i.bitis
         FROM izin i JOIN personel p ON p.id=i.personel_id
         WHERE date('now') BETWEEN i.baslangic AND i.bitis""")
@@ -722,7 +745,6 @@ def _sayfa_bilgi():
             df_iz = pd.DataFrame(bugun_izinliler)
             st.dataframe(df_iz, use_container_width=True, hide_index=True)
 
-    # Yarın başlayacak izinler
     yarin = (date.today() + timedelta(days=1)).isoformat()
     yarin_izin = sql_all("""SELECT p.ad, p.soyad, i.baslangic, i.bitis
         FROM izin i JOIN personel p ON p.id=i.personel_id
@@ -732,7 +754,6 @@ def _sayfa_bilgi():
         with st.expander(f"🔵 Yarın Başlayacak İzinler ({len(yarin_izin)} kişi)"):
             st.dataframe(pd.DataFrame(yarin_izin), use_container_width=True, hide_index=True)
 
-    # Personeli olmayan gemiler
     bos_gemiler = sql_all("""SELECT g.ad FROM gemi g LEFT JOIN personel p ON p.gemi_id = g.id
                              WHERE p.id IS NULL""")
     if bos_gemiler:
@@ -740,7 +761,6 @@ def _sayfa_bilgi():
         with st.expander("⚠️ Personeli Olmayan Gemiler"):
             st.write(", ".join([g['ad'] for g in bos_gemiler]))
 
-    # Çarkçı sorunu olan aktif yağcılar
     sorunlu_yagci = sql_all("""SELECT ad, soyad, carkci_sorun_notu FROM personel
                                 WHERE carkci_ile_sorun=1 AND aktif=1""")
     if sorunlu_yagci:
@@ -753,14 +773,56 @@ def _sayfa_bilgi():
 
     st.divider()
 
-    # ---- İstatistikler ----
+    # ---- GENEL ÖZET: Yağcı Bazında Aylık Çalışma/İzin Grafiği ----
+    st.subheader("📅 Yağcı Performans Özeti (Aylık)")
+    bugun = date.today()
+    secili_ay_ozet = st.selectbox("Ay Seçin", 
+                                  [f"{AY_ADLARI[m]} {bugun.year}" for m in range(1,13)],
+                                  index=bugun.month-1,
+                                  key="ozet_ay")
+    ay_index = AY_ADLARI.index(secili_ay_ozet.split()[0])
+    yil = int(secili_ay_ozet.split()[1])
+    ay_bas = date(yil, ay_index, 1)
+    ay_son = date(yil, ay_index, _cal.monthrange(yil, ay_index)[1])
+
+    personeller = sql_all("SELECT id, ad, soyad FROM personel ORDER BY ad")
+    ozet_data = []
+    for p in personeller:
+        # İzin günleri
+        izin_gunleri = 0
+        izinler = sql_all("SELECT baslangic, bitis FROM izin WHERE personel_id=? AND baslangic <= ? AND bitis >= ?",
+                           (p["id"], ay_son.isoformat(), ay_bas.isoformat()))
+        for iz in izinler:
+            bas = max(date.fromisoformat(iz["baslangic"]), ay_bas)
+            bit = min(date.fromisoformat(iz["bitis"]), ay_son)
+            while bas <= bit:
+                izin_gunleri += 1
+                bas += timedelta(days=1)
+        # Çalışma günleri (vardiya planına atanmış)
+        calisma = sql_one("SELECT COUNT(*) AS c FROM vardiya_plan WHERE personel_id=? AND tarih >= ? AND tarih <= ?",
+                          (p["id"], ay_bas.isoformat(), ay_son.isoformat()))
+        calisma_gunleri = calisma["c"] if calisma else 0
+        ozet_data.append({
+            "Personel": f"{p['ad']} {p['soyad']}",
+            "Çalışma Günü": calisma_gunleri,
+            "İzin Günü": izin_gunleri
+        })
+
+    if ozet_data:
+        df_ozet = pd.DataFrame(ozet_data)
+        st.dataframe(df_ozet, use_container_width=True, hide_index=True)
+        # Grafik
+        df_melt = df_ozet.melt(id_vars=["Personel"], var_name="Durum", value_name="Gün")
+        st.bar_chart(df_melt.pivot(index="Personel", columns="Durum", values="Gün"), use_container_width=True)
+
+    # ---- Diğer raporlar ----
+    st.divider()
     def cnt(q,p=()): return (sql_one(q,p) or {"c":0})["c"]
     col1, col2, col3 = st.columns(3)
     col1.metric("Toplam Personel", cnt("SELECT COUNT(*) AS c FROM personel"))
     col2.metric("Toplam Gemi", cnt("SELECT COUNT(*) AS c FROM gemi"))
     col3.metric("Bugün İzinde", len(bugun_izinliler) if bugun_izinliler else 0)
 
-    # Grafikler
     gemi_bazli = sql_all("""SELECT g.ad AS gemi, COUNT(p.id) AS sayi
         FROM gemi g LEFT JOIN personel p ON p.gemi_id=g.id GROUP BY g.id ORDER BY sayi DESC""")
     if gemi_bazli:
@@ -774,7 +836,6 @@ def _sayfa_bilgi():
         st.subheader("Vardiya Tiplerine Göre Personel")
         st.bar_chart(df2, use_container_width=True)
 
-    # ---- Çarkçı Performans Raporu ----
     st.divider()
     st.subheader("📈 Çarkçı Performans Raporu")
     carkci_rapor = sql_all("""SELECT c.ad, c.soyad, COUNT(*) as kayit_sayisi, SUM(c.puan_kirma) as toplam_puan_kirma
@@ -785,7 +846,6 @@ def _sayfa_bilgi():
     else:
         st.info("Henüz puan kırma kaydı yok.")
 
-    # Gemi bazında ortalama iş kalitesi
     st.subheader("📊 Gemi Bazında Ortalama İş Kalitesi")
     kalite_rapor = sql_all("""SELECT g.ad, ROUND(AVG(p.is_kalitesi),1) as ort_kalite, COUNT(p.id) as kisi
         FROM personel p JOIN gemi g ON p.gemi_id = g.id
@@ -821,38 +881,45 @@ def _sayfa_bilgi():
 def main():
     st.set_page_config(page_title="Ordino Yağcı", page_icon="⚓", layout="centered", initial_sidebar_state="collapsed")
     
-    # Koyu tema CSS
+    # Mobil uyumlu koyu tema CSS (responsive)
     st.markdown("""
     <style>
         .stApp { background: #1a1a2e; }
         .main .block-container {
-            background: #2b2b3d; border-radius: 20px; padding: 2rem 1.5rem;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.4); margin-top: 20px; color: #f0f0f0;
+            background: #2b2b3d; border-radius: 20px; padding: 1.5rem 1rem;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4); margin-top: 10px; color: #f0f0f0;
+            max-width: 600px; margin-left: auto; margin-right: auto;
         }
         h1, h2, h3, h4, h5, h6, p, span, div, label { color: #f0f0f0 !important; }
-        .stTabs [role="tablist"] { gap: 0.5rem; }
+        .stTabs [role="tablist"] { gap: 0.2rem; flex-wrap: wrap; }
         .stTabs [role="tab"] {
-            background: #3a3a4e; border: none; border-radius: 12px;
-            padding: 0.6rem 1rem; color: #cccccc !important; font-weight: 500;
+            background: #3a3a4e; border: none; border-radius: 10px;
+            padding: 0.4rem 0.6rem; color: #cccccc !important; font-weight: 500;
+            font-size: 0.85rem;
         }
         .stTabs [aria-selected="true"] { background: #f3831f; color: #ffffff !important; }
         .stButton > button {
-            background: #f3831f; color: white; border: none; border-radius: 12px;
+            background: #f3831f; color: white; border: none; border-radius: 10px;
             padding: 0.5rem 1rem; font-weight: 600; transition: all 0.2s;
+            width: 100%; min-height: 44px; /* Mobil dokunmatik uyum */
         }
-        .stButton > button:hover { background: #d35400; box-shadow: 0 4px 10px rgba(243,131,31,0.6); }
-        .stDataFrame { font-size: 14px; background-color: #2b2b3d; }
+        .stButton > button:hover { background: #d35400; }
+        .stDataFrame { font-size: 13px; }
         div[data-testid="stExpander"] div[role="button"] p { color: #f3831f !important; font-weight: 600; }
         .stTextInput > div > div > input, .stSelectbox > div > div, .stMultiselect > div > div {
-            background-color: #3a3a4e; color: white; border: 1px solid #555;
+            background-color: #3a3a4e; color: white; border: 1px solid #555; border-radius: 8px;
         }
         .stDateInput > div > div > input { background-color: #3a3a4e; color: white; }
         .stSlider > div > div > div { background: #f3831f; }
-        .stWarning { background-color: #5a4a00; color: #ffdd55; }
-        .stError { background-color: #5a1a1a; color: #ff9999; }
-        .stSuccess { background-color: #1a5a2a; color: #99ff99; }
-        .stInfo { background-color: #1a3a5a; color: #99ccff; }
+        .stWarning, .stError, .stSuccess, .stInfo { border-radius: 8px; }
         .stDataFrame thead tr th { background-color: #3a3a4e !important; color: #f0f0f0 !important; }
+        /* Mobil için yazı boyutları */
+        @media screen and (max-width: 480px) {
+            h1 { font-size: 1.6rem !important; }
+            h2 { font-size: 1.3rem !important; }
+            h3 { font-size: 1.1rem !important; }
+            .stDataFrame { font-size: 12px; }
+        }
     </style>
     """, unsafe_allow_html=True)
 
