@@ -1,5 +1,5 @@
 """
-Ordino Yağcı Planlaması — Tüm Özellikler Dahil (puan_kirma hatası düzeltildi)
+Ordino Yağcı Planlaması — Koyu Tema, Tüm Özellikler
 Çalıştır: streamlit run app.py
 """
 from __future__ import annotations
@@ -98,7 +98,7 @@ def init_db():
         FOREIGN KEY(makine_tipi_id) REFERENCES makine_tipi(id) ON DELETE CASCADE
     )""")
 
-    # Eksik sütunları ekle (personel)
+    # Eksik sütunları ekle
     c.execute("PRAGMA table_info(personel)")
     p_cols = [col[1] for col in c.fetchall()]
     personel_columns = [
@@ -119,9 +119,8 @@ def init_db():
             try:
                 c.execute(f"ALTER TABLE personel ADD COLUMN {col} {typ}")
             except sqlite3.OperationalError:
-                pass  # Sütun zaten varsa hata verme
+                pass
 
-    # Eksik sütunları ekle (izin)
     c.execute("PRAGMA table_info(izin)")
     if "gunler_json" not in [col[1] for col in c.fetchall()]:
         try:
@@ -129,7 +128,6 @@ def init_db():
         except sqlite3.OperationalError:
             pass
 
-    # Eksik sütunları ekle (carkci)
     c.execute("PRAGMA table_info(carkci)")
     c_cols = [col[1] for col in c.fetchall()]
     if "vardiya_gunleri" not in c_cols:
@@ -191,7 +189,7 @@ def izinde_mi(pid: int, kontrol: date) -> bool:
     t = kontrol.isoformat()
     return bool(sql_one("SELECT id FROM izin WHERE personel_id=? AND ?>=baslangic AND ?<=bitis", (pid, t, t)))
 
-# ---------- TAKVİM HTML ----------
+# ---------- TAKVİM HTML (Koyu tema) ----------
 def _takvim_html(yil: int, ay: int, isaretli: set[date]) -> str:
     son_gun = _cal.monthrange(yil, ay)[1]
     ilk_gun_haftaici = date(yil, ay, 1).weekday()
@@ -199,15 +197,15 @@ def _takvim_html(yil: int, ay: int, isaretli: set[date]) -> str:
     css = """
     <style>
     .cal{font-family:system-ui,sans-serif;max-width:400px;margin:0 auto;
-         background:#fff;border-radius:16px;padding:16px;box-shadow:0 2px 10px rgba(0,0,0,0.05);}
-    .cal-title{text-align:center;font-size:18px;font-weight:600;color:#1a1a1a;margin-bottom:12px;}
+         background:#2b2b2b;border-radius:16px;padding:16px;box-shadow:0 2px 10px rgba(0,0,0,0.3);}
+    .cal-title{text-align:center;font-size:18px;font-weight:600;color:#f0f0f0;margin-bottom:12px;}
     .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;}
-    .cal-hdr{text-align:center;font-size:12px;font-weight:600;color:#666;padding:6px 0;}
+    .cal-hdr{text-align:center;font-size:12px;font-weight:600;color:#aaa;padding:6px 0;}
     .cal-cell{text-align:center;padding:10px 2px;border-radius:10px;font-size:14px;font-weight:500;}
     .cal-empty{background:transparent;}
-    .cal-normal{background:#f9f9f9;color:#333;}
-    .cal-izin{background:#f3831f;color:#fff;font-weight:600;box-shadow:0 2px 5px rgba(243,131,31,0.3);}
-    .cal-bugun{background:#fff;color:#f3831f;border:2px solid #f3831f;font-weight:700;}
+    .cal-normal{background:#3a3a3a;color:#ddd;}
+    .cal-izin{background:#f3831f;color:#fff;font-weight:600;box-shadow:0 2px 5px rgba(243,131,31,0.5);}
+    .cal-bugun{background:#2b2b2b;color:#f3831f;border:2px solid #f3831f;font-weight:700;}
     .cal-izin.cal-bugun{background:#d35400;color:#fff;border:2px solid #d35400;}
     </style>
     """
@@ -647,7 +645,6 @@ def _sayfa_bilgi():
     col2.metric("Toplam Gemi", cnt("SELECT COUNT(*) AS c FROM gemi"))
     col3.metric("Bugün İzinde", cnt("SELECT COUNT(*) AS c FROM izin WHERE date('now') BETWEEN baslangic AND bitis"))
 
-    # Gemilere göre personel dağılımı (bar chart)
     gemi_bazli = sql_all("""SELECT g.ad AS gemi, COUNT(p.id) AS sayi
         FROM gemi g LEFT JOIN personel p ON p.gemi_id=g.id GROUP BY g.id ORDER BY sayi DESC""")
     if gemi_bazli:
@@ -655,14 +652,12 @@ def _sayfa_bilgi():
         st.subheader("Gemilere Göre Personel Dağılımı")
         st.bar_chart(df, use_container_width=True)
 
-    # Vardiya tiplerine göre dağılım (bar chart)
     vardiya_dagilim = sql_all("SELECT vardiya_tipi, COUNT(*) AS sayi FROM personel WHERE aktif=1 GROUP BY vardiya_tipi")
     if vardiya_dagilim:
         df2 = pd.DataFrame(vardiya_dagilim).set_index('vardiya_tipi')
         st.subheader("Vardiya Tiplerine Göre Personel")
         st.bar_chart(df2, use_container_width=True)
 
-    # Bugün izinde olanlar
     izinliler = sql_all("""SELECT p.ad,p.soyad,i.baslangic,i.bitis,i.gun_sayisi
         FROM izin i JOIN personel p ON p.id=i.personel_id
         WHERE date('now') BETWEEN i.baslangic AND i.bitis ORDER BY p.ad""")
@@ -670,7 +665,6 @@ def _sayfa_bilgi():
         st.markdown("#### 🟠 Bugün İzinde Olan Personel")
         st.dataframe(pd.DataFrame(izinliler), use_container_width=True, hide_index=True)
 
-    # Vardiya planı dışa aktar
     st.divider()
     st.markdown("#### 📥 Vardiya Planı Excel Çıktısı")
     plan = sql_all("""SELECT v.tarih, g.ad AS gemi, m.ad AS makine, p.ad||' '||p.soyad AS personel
@@ -697,28 +691,93 @@ def _sayfa_bilgi():
 # ---------- ANA ----------
 def main():
     st.set_page_config(page_title="Ordino Yağcı", page_icon="⚓", layout="centered", initial_sidebar_state="collapsed")
+    
+    # Koyu tema CSS
     st.markdown("""
     <style>
-        .stApp { background: #f5f7fa; }
-        .main .block-container {
-            background: #ffffff; border-radius: 20px; padding: 2rem 1.5rem;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.05); margin-top: 20px;
+        .stApp {
+            background: #1a1a2e;
         }
-        h2, h3 { color: #1a1a1a !important; }
-        .stTabs [role="tablist"] { gap: 0.5rem; }
+        .main .block-container {
+            background: #2b2b3d;
+            border-radius: 20px;
+            padding: 2rem 1.5rem;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+            margin-top: 20px;
+            color: #f0f0f0;
+        }
+        h1, h2, h3, h4, h5, h6, p, span, div, label {
+            color: #f0f0f0 !important;
+        }
+        .stTabs [role="tablist"] {
+            gap: 0.5rem;
+        }
         .stTabs [role="tab"] {
-            background: #f0f2f6; border: none; border-radius: 12px;
-            padding: 0.6rem 1rem; color: #4a5568; font-weight: 500;
+            background: #3a3a4e;
+            border: none;
+            border-radius: 12px;
+            padding: 0.6rem 1rem;
+            color: #cccccc !important;
+            font-weight: 500;
         }
         .stTabs [aria-selected="true"] {
-            background: #f3831f; color: #ffffff !important;
+            background: #f3831f;
+            color: #ffffff !important;
         }
         .stButton > button {
-            background: #f3831f; color: white; border: none; border-radius: 12px;
-            padding: 0.5rem 1rem; font-weight: 600; transition: all 0.2s;
+            background: #f3831f;
+            color: white;
+            border: none;
+            border-radius: 12px;
+            padding: 0.5rem 1rem;
+            font-weight: 600;
+            transition: all 0.2s;
         }
-        .stButton > button:hover { background: #d35400; box-shadow: 0 4px 10px rgba(243,131,31,0.4); }
-        .stDataFrame { font-size: 14px; }
+        .stButton > button:hover {
+            background: #d35400;
+            box-shadow: 0 4px 10px rgba(243,131,31,0.6);
+        }
+        .stDataFrame {
+            font-size: 14px;
+            background-color: #2b2b3d;
+        }
+        div[data-testid="stExpander"] div[role="button"] p {
+            color: #f3831f !important;
+            font-weight: 600;
+        }
+        .stTextInput > div > div > input, .stSelectbox > div > div, .stMultiselect > div > div {
+            background-color: #3a3a4e;
+            color: white;
+            border: 1px solid #555;
+        }
+        .stDateInput > div > div > input {
+            background-color: #3a3a4e;
+            color: white;
+        }
+        .stSlider > div > div > div {
+            background: #f3831f;
+        }
+        .stWarning {
+            background-color: #5a4a00;
+            color: #ffdd55;
+        }
+        .stError {
+            background-color: #5a1a1a;
+            color: #ff9999;
+        }
+        .stSuccess {
+            background-color: #1a5a2a;
+            color: #99ff99;
+        }
+        .stInfo {
+            background-color: #1a3a5a;
+            color: #99ccff;
+        }
+        /* Tablo başlıkları */
+        .stDataFrame thead tr th {
+            background-color: #3a3a4e !important;
+            color: #f0f0f0 !important;
+        }
     </style>
     """, unsafe_allow_html=True)
 
