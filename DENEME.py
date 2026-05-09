@@ -1,5 +1,5 @@
 """
-Ordino Yağcı Planlaması — İNTERAKTİF YAPBOZ MODU + Tüm Özellikler
+Ordino Yağcı Planlaması — DÜZELTİLMİŞ YAPBOZ + TÜM İYİLEŞTİRMELER
 Çalıştır: streamlit run app.py
 """
 from __future__ import annotations
@@ -532,19 +532,24 @@ def test_verisi_olustur():
     st.success("Test verileri basariyla olusturuldu!")
     st.rerun()
 
-# ---------- YENİ: İNTERAKTİF YAPBOZ MODU ----------
+# ---------- DÜZELTİLMİŞ YAPBOZ MODU ----------
 def _sayfa_yapboz():
     st.subheader("🧩 İnteraktif Yapboz - Personel Yerleştir")
-    st.caption("Bugün için personel yapbozunu tamamla! Boş pozisyonlara uygun personeli seç ve yerleştir.")
+    st.caption("Boş pozisyonlara uygun personeli seç ve yerleştir.")
     
-    bugun = date.today()
+    # Tarih seçimi eklendi
+    secili_tarih = st.date_input("Planlanacak Tarih", value=date.today(), key="yapboz_tarih", format="DD.MM.YYYY")
+    
     gemiler = sql_all("SELECT id, ad FROM gemi ORDER BY ad")
     makineler = sql_all("SELECT id, ad FROM makine_tipi ORDER BY ad")
     if not gemiler or not makineler:
         st.warning("Gemi ve makine tipi ekleyin.")
         return
 
-    izinli_ids = bugun_izinli_ids()
+    # İzinli listesini seçili tarihe göre al
+    izinli_ids = set()
+    izinli_rows = sql_all("SELECT personel_id FROM izin WHERE ? BETWEEN baslangic AND bitis", (secili_tarih.isoformat(),))
+    izinli_ids = {r["personel_id"] for r in izinli_rows}
     
     # Yapboz panosu
     for gemi in gemiler:
@@ -552,41 +557,77 @@ def _sayfa_yapboz():
         makine_satir = st.columns(len(makineler))
         for i, makine in enumerate(makineler):
             with makine_satir[i]:
-                mevcut = vardiya_plani_kontrol(gemi["id"], makine["id"], bugun)
+                mevcut = vardiya_plani_kontrol(gemi["id"], makine["id"], secili_tarih)
                 if mevcut:
                     p = sql_one("SELECT ad, soyad, vardiya_tipi FROM personel WHERE id=?", (mevcut,))
                     if p:
                         st.success(f"**{p['ad']} {p['soyad']}**\n({p['vardiya_tipi']})")
-                        if st.button("❌ Çıkar", key=f"cikar_{gemi['id']}_{makine['id']}"):
-                            sql_run("DELETE FROM vardiya_plan WHERE gemi_id=? AND makine_tipi_id=? AND tarih=?", (gemi["id"], makine["id"], bugun.isoformat()))
+                        if st.button("❌ Çıkar", key=f"cikar_{gemi['id']}_{makine['id']}_{secili_tarih}"):
+                            sql_run("DELETE FROM vardiya_plan WHERE gemi_id=? AND makine_tipi_id=? AND tarih=?", (gemi["id"], makine["id"], secili_tarih.isoformat()))
+                            st.success("Personel çıkarıldı.")
                             st.rerun()
                 else:
                     st.warning("Boş")
-                    # Boş pozisyon için personel seç ve ata
-                    personel_secimi = st.selectbox(
-                        "Personel seç",
-                        options=["Seçiniz..."] + [f"{p['ad']} {p['soyad']}" for p in sql_all("SELECT id, ad, soyad FROM personel WHERE aktif=1")],
-                        key=f"sec_{gemi['id']}_{makine['id']}"
-                    )
-                    if personel_secimi != "Seçiniz...":
-                        # Personeli bul
-                        p_sec = sql_one("SELECT id FROM personel WHERE ad||' '||soyad=?", (personel_secimi,))
-                        if p_sec:
-                            # Uygunluk kontrolü (basit: izinli olmasın, çakışma olmasın, sertifika geçerli olsun)
-                            if p_sec["id"] in izinli_ids:
-                                st.error("Bu personel bugün izinli!")
-                            elif baska_gemide_mi(p_sec["id"], bugun, gemi["id"]):
-                                st.error("Bu personel aynı gün başka bir gemide çalışıyor.")
-                            elif not sertifika_gecerli_mi(p_sec["id"], makine["id"], bugun):
-                                st.error("Bu personelin bu makine için geçerli sertifikası yok.")
-                            else:
+                    
+                    # Boş pozisyon için uygun personel listesini getir
+                    tum_personel = sql_all("SELECT id, ad, soyad FROM personel WHERE aktif=1 ORDER BY ad")
+                    uygun_secenekler = ["Seçiniz..."]
+                    uygun_personel = []
+                    
+                    for p in tum_personel:
+                        # Tam kontrol zinciri
+                        if p["id"] in izinli_ids:
+                            continue
+                        if baska_gemide_mi(p["id"], secili_tarih, gemi["id"]):
+                            continue
+                        if ayni_gun_baska_makine(p["id"], secili_tarih, makine["id"]):
+                            continue
+                        
+                        # Makine bilgisi kontrolü
+                        mids = _id_listesi(sql_one("SELECT makine_tipi_id_list, makine_tipi_id FROM personel WHERE id=?", (p["id"],)).get("makine_tipi_id_list")) or \
+                               [sql_one("SELECT makine_tipi_id FROM personel WHERE id=?", (p["id"],))["makine_tipi_id"]]
+                        if makine["id"] not in mids:
+                            continue
+                        
+                        # Sertifika kontrolü
+                        if not sertifika_gecerli_mi(p["id"], makine["id"], secili_tarih):
+                            continue
+                        
+                        # Gemi atama kontrolü
+                        gids = _id_listesi(sql_one("SELECT gemi_id_list, gemi_id FROM personel WHERE id=?", (p["id"],)).get("gemi_id_list")) or \
+                               [sql_one("SELECT gemi_id FROM personel WHERE id=?", (p["id"],))["gemi_id"]]
+                        if gemi["id"] not in gids:
+                            continue
+                        
+                        # Çarkçı sorunu kontrolü
+                        if sql_one("SELECT carkci_ile_sorun FROM personel WHERE id=?", (p["id"],))["carkci_ile_sorun"]:
+                            continue
+                        
+                        uygun_personel.append(p)
+                        uygun_secenekler.append(f"{p['ad']} {p['soyad']}")
+                    
+                    if len(uygun_secenekler) == 1:
+                        st.caption("Uygun personel yok")
+                    else:
+                        personel_secimi = st.selectbox(
+                            "Personel seç",
+                            options=uygun_secenekler,
+                            key=f"sec_{gemi['id']}_{makine['id']}_{secili_tarih}"
+                        )
+                        if personel_secimi != "Seçiniz...":
+                            # Personeli bul
+                            p_sec = sql_one("SELECT id FROM personel WHERE ad||' '||soyad=?", (personel_secimi,))
+                            if p_sec:
                                 sql_run("INSERT INTO vardiya_plan(personel_id, gemi_id, makine_tipi_id, tarih) VALUES(?,?,?,?)",
-                                        (p_sec["id"], gemi["id"], makine["id"], bugun.isoformat()))
+                                        (p_sec["id"], gemi["id"], makine["id"], secili_tarih.isoformat()))
                                 st.success(f"{personel_secimi} atandı!")
+                                # Performans geçmişine otomatik ekle
+                                sql_run("INSERT INTO performans_gecmis(personel_id, tarih, puan, kaynak) VALUES(?,?,?,?)",
+                                        (p_sec["id"], secili_tarih.isoformat(), sql_one("SELECT is_kalitesi FROM personel WHERE id=?", (p_sec["id"],))["is_kalitesi"] or 3, 'otomatik'))
                                 st.rerun()
         st.divider()
 
-# ---------- DİĞER SAYFALAR (öncekiyle aynı) ----------
+# ---------- DİĞER SAYFALAR ----------
 def _sayfa_excel():
     st.subheader("🚢 Gemiler & Makine Yönetimi")
     with st.form("gemi_ekle_form", clear_on_submit=True):
@@ -1086,7 +1127,7 @@ def _sayfa_oneri():
 
     esnek = st.checkbox("Aynı gün farklı gemide çalışmaya izin ver", value=False, key="esnek_cakisma")
 
-    st.subheader("🗓️ Toplu Planlama")
+    st.subheader("🗓️ Toplu Planlama (Adil Dağıtım)")
     with st.expander("Ayarlar"):
         col_t1, col_t2 = st.columns(2)
         with col_t1:
@@ -1100,24 +1141,32 @@ def _sayfa_oneri():
         bit_tarih = col_s.date_input("Bitiş", value=date.today()+timedelta(days=7), key="toplu_bit", format="DD.MM.YYYY")
         gunler_sec = st.multiselect("Günler", GUNLER_TR, default=["Pazartesi","Salı","Çarşamba","Perşembe","Cuma"], key="toplu_gunler")
         gun_index = [GUNLER_TR.index(g) for g in gunler_sec]
-        if st.button("🚀 Toplu Planı Oluştur", key="btn_toplu_plan"):
+        if st.button("🚀 Toplu Planı Oluştur (Adil Dağıtım)", key="btn_toplu_plan"):
             if not secili_gemiler or not secili_makineler:
                 st.error("En az bir gemi ve bir makine tipi seçin.")
             else:
                 toplam_atama = 0
+                # Adil dağıtım için kullanılan personel sayacı
+                kullanilan = {}
                 for g_id in secili_gemiler:
                     for m_id in secili_makineler:
                         d = bas_tarih
                         while d <= bit_tarih:
                             if d.weekday() in gun_index:
                                 if not vardiya_plani_kontrol(g_id, m_id, d):
-                                    oneri = onerileri_hesapla(g_id, m_id, d, cikan_id=None, limit=1, esnek_cakisma=esnek)
-                                    if oneri and not oneri[0].get("zaten_atanmis"):
-                                        sql_run("INSERT INTO vardiya_plan(personel_id, gemi_id, makine_tipi_id, tarih) VALUES(?,?,?,?)",
-                                                (oneri[0]["id"], g_id, m_id, d.isoformat()))
-                                        toplam_atama += 1
+                                    # Daha önce az kullanılmış personeli tercih et
+                                    oneriler = onerileri_hesapla(g_id, m_id, d, cikan_id=None, limit=10, esnek_cakisma=esnek)
+                                    # Kullanım sayısına göre sırala
+                                    oneriler.sort(key=lambda x: kullanilan.get(x["id"], 0))
+                                    if oneriler:
+                                        secilen = oneriler[0]
+                                        if not secilen.get("zaten_atanmis"):
+                                            sql_run("INSERT INTO vardiya_plan(personel_id, gemi_id, makine_tipi_id, tarih) VALUES(?,?,?,?)",
+                                                    (secilen["id"], g_id, m_id, d.isoformat()))
+                                            kullanilan[secilen["id"]] = kullanilan.get(secilen["id"], 0) + 1
+                                            toplam_atama += 1
                             d += timedelta(days=1)
-                st.success(f"Toplu planlama tamamlandı. {toplam_atama} yeni vardiya atandı.")
+                st.success(f"Toplu planlama tamamlandı. {toplam_atama} yeni vardiya adil dağıtımla atandı.")
                 st.rerun()
 
     st.divider()
@@ -1301,7 +1350,7 @@ def _sayfa_bilgi():
         st.bar_chart(df_melt.pivot(index="Personel", columns="Durum", values="Gün"), use_container_width=True)
 
     st.divider()
-    st.subheader("📈 Personel Performans Geçmişi")
+    st.subheader("📈 Personel Performans Geçmişi (Otomatik + Manuel)")
     perf_personel = st.selectbox("Personel Seç", [f"{p['ad']} {p['soyad']}" for p in personeller], key="perf_p")
     if perf_personel:
         p_id = personeller[[f"{p['ad']} {p['soyad']}" for p in personeller].index(perf_personel)]["id"]
@@ -1310,6 +1359,14 @@ def _sayfa_bilgi():
             df_perf = pd.DataFrame(gecmis)
             st.line_chart(df_perf.set_index('tarih')['puan'], use_container_width=True)
             st.dataframe(df_perf, use_container_width=True, hide_index=True)
+            
+            # Otomatik günlük ortalama
+            son_7_gun = (date.today() - timedelta(days=7)).isoformat()
+            otomatik_puanlar = sql_all("""SELECT AVG(puan) as ortalama FROM performans_gecmis 
+                                        WHERE personel_id=? AND tarih >= ? AND kaynak='otomatik'""", 
+                                     (p_id, son_7_gun))
+            if otomatik_puanlar and otomatik_puanlar[0]["ortalama"]:
+                st.metric("Son 7 Gün Otomatik Ortalama", f"{otomatik_puanlar[0]['ortalama']:.1f}")
         else:
             st.info("Bu personel için performans geçmişi bulunmuyor.")
 
@@ -1377,7 +1434,7 @@ def main():
         .main .block-container {
             background: #2b2b3d; border-radius: 20px; padding: 1.5rem 1rem;
             box-shadow: 0 4px 20px rgba(0,0,0,0.4); margin-top: 10px; color: #f0f0f0;
-            max-width: 650px; margin-left: auto; margin-right: auto;
+            max-width: 700px; margin-left: auto; margin-right: auto;
         }
         h1, h2, h3, h4, h5, h6, p, span, div, label { color: #f0f0f0 !important; }
         .stTabs [role="tablist"] { gap: 0.2rem; flex-wrap: wrap; }
@@ -1398,21 +1455,26 @@ def main():
 
     init_db()
     st.title("⚓ Ordino Yağcı Planlaması")
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
-        ["⚡ Acil", "🧩 Yapboz", "🚢 Gemiler", "👷 Personel", "📅 İzin", "⚙️ Çarkçı", "✦ Öneri", "📊 Bilgi"]
+    # Sekmeleri 6'ya indirip grupladık
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+        ["🧩 Yapboz", "⚡ Acil", "🚢 Gemiler", "👷 Personel & İzin", "✦ Öneri & Plan", "📊 Bilgi"]
     )
-    with tab1: _sayfa_acil_oneri()
-    with tab2: _sayfa_yapboz()
+    with tab1: _sayfa_yapboz()
+    with tab2: _sayfa_acil_oneri()
     with tab3: _sayfa_excel()
-    with tab4: _sayfa_personel()
-    with tab5: _sayfa_izin()
-    with tab6: _sayfa_carkci()
-    with tab7: _sayfa_oneri()
-    with tab8: _sayfa_bilgi()
+    with tab4:
+        _sayfa_personel()
+        st.divider()
+        _sayfa_izin()
+    with tab5:
+        _sayfa_oneri()
+        st.divider()
+        _sayfa_carkci()
+    with tab6: _sayfa_bilgi()
 
     st.divider()
     with st.expander("📱 Telefonda Kullanım"):
         st.markdown("- iPhone Safari → Paylaş → Ana Ekrana Ekle\n- Android Chrome → Ana Ekrana Ekle")
 
 if __name__ == "__main__":
-    main()
+    main() 
