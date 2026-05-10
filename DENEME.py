@@ -1,5 +1,5 @@
 """
-Ordino Yağcı Planlaması — OTOMATİK DOLDUR, PERSONEL KARTI, TOPLU DURUM, DÜN KİM ÇALIŞTI, RENK TONU + SAATLİ PLAN
+Ordino Yağcı Planlaması — MODERN UI/UX (Sidebar, Kartlar, İkonlar, Spinner)
 Çalıştır: streamlit run app.py
 """
 from __future__ import annotations
@@ -16,18 +16,16 @@ from fpdf import FPDF
 DB_PATH = Path(__file__).parent / "ordino.db"
 YEDEK_DIR = Path(__file__).parent / "yedekler"
 
-# Varsayılan çalışma saatleri (vardiya tipi -> (başlangıç, bitiş))
 VARDIYA_SAATLERI = {
-    "SABIT": ("08:00", "08:00"),      # ertesi güne sarkan
+    "SABIT": ("08:00", "08:00"),
     "GRUPCU": ("08:00", "08:00"),
     "IZINCI": ("08:00", "08:00"),
     "TERSANE": ("08:00", "17:00"),
     "8_5": ("08:00", "17:00"),
-    "GECE": ("20:00", "08:00"),       # gece vardiyası
+    "GECE": ("20:00", "08:00"),
 }
 
 def saat_cakisiyor(bas1: str, bit1: str, bas2: str, bit2: str) -> bool:
-    """İki saat aralığı çakışıyor mu? (bas1 < bit2 ve bas2 < bit1)"""
     def to_minutes(saat: str) -> int:
         h, m = map(int, saat.split(":"))
         return h * 60 + m
@@ -35,10 +33,8 @@ def saat_cakisiyor(bas1: str, bit1: str, bas2: str, bit2: str) -> bool:
     e1 = to_minutes(bit1)
     b2 = to_minutes(bas2)
     e2 = to_minutes(bit2)
-    if e1 <= b1:  # gece vardiyası, ertesi güne sarkıyor
-        e1 += 24 * 60
-    if e2 <= b2:
-        e2 += 24 * 60
+    if e1 <= b1: e1 += 24 * 60
+    if e2 <= b2: e2 += 24 * 60
     return b1 < e2 and b2 < e1
 
 def get_connection():
@@ -147,7 +143,6 @@ PERSONEL_DURUM = ["Gemide", "İskelede", "Raporlu"]
 VARDIYA_RENKLERI = {"SABIT":"#3498db","GRUPCU":"#2ecc71","IZINCI":"#f39c12","TERSANE":"#e74c3c","8_5":"#9b59b6","GECE":"#1abc9c"}
 VARDIYA_KONUM_ESLESME = {"TERSANE":"Tersane", "8_5":"Dışarıda"}
 
-# NLP
 OLUMLU_KELIMELER = [
     "iyi", "çalışkan", "başarılı", "güvenilir", "hızlı", "dikkatli", "özenli",
     "disiplinli", "yardımsever", "titiz", "profesyonel", "mükemmel", "harika",
@@ -216,7 +211,6 @@ def ayni_gun_baska_makine(pid, tarih, makine_tipi_id):
     return bool(sql_one("SELECT id FROM vardiya_plan WHERE personel_id=? AND tarih=? AND makine_tipi_id != ?", (pid, tarih.isoformat(), makine_tipi_id)))
 
 def saat_cakismasi_var(pid, tarih, bas_saat, bit_saat):
-    """Aynı personelin aynı tarihte saat çakışması olan başka vardiyası var mı?"""
     rows = sql_all("SELECT baslangic_saat, bitis_saat FROM vardiya_plan WHERE personel_id=? AND tarih=?", (pid, tarih.isoformat()))
     for r in rows:
         if saat_cakisiyor(bas_saat, bit_saat, r["baslangic_saat"], r["bitis_saat"]):
@@ -251,16 +245,12 @@ def onerileri_hesapla(gemi_id, makine_tipi_id, hedef_tarih, cikan_id=None, limit
         if p: return [{**p, "puan":999, "uyari_8_5":p.get("vardiya_tipi")=="8_5", "zaten_atanmis":True}]
     tum = sql_all("SELECT * FROM personel WHERE aktif=1 AND durum IN ('Gemide','İskelede')")
     gemi_konum = sql_one("SELECT konum FROM gemi WHERE id=?", (gemi_id,))["konum"]
-    # Vardiya tipine göre varsayılan saatleri al
-    vardiya_tipi = sql_one("SELECT vardiya_tipi FROM personel WHERE id=?", (cikan_id,) if cikan_id else (0,))
-    # Hedef vardiya saatleri (şimdilik boş, atama sırasında belirlenecek)
     sonuclar = []
     for p in tum:
         if cikan_id and p["id"] == cikan_id: continue
         if izinde_mi(p["id"], hedef_tarih): continue
         if baska_gemide_mi(p["id"], hedef_tarih, gemi_id, esnek=esnek_cakisma): continue
         if ayni_gun_baska_makine(p["id"], hedef_tarih, makine_tipi_id): continue
-        # Saat çakışması kontrolü için varsayılan saatleri kullan
         vardiya = p.get("vardiya_tipi","")
         if vardiya == "GECE" and gemi_konum != "Gecede": continue
         if vardiya in VARDIYA_KONUM_ESLESME and gemi_konum != VARDIYA_KONUM_ESLESME[vardiya]: continue
@@ -310,23 +300,21 @@ def _tema_css(koyu=True):
     if koyu:
         return """
         <style>
-        .stApp{background:#1a1a2e}.main .block-container{background:#2b2b3d;border-radius:20px;padding:1.5rem 1rem;box-shadow:0 4px 20px rgba(0,0,0,0.4);margin-top:10px;color:#f0f0f0;max-width:700px;margin-left:auto;margin-right:auto}
+        .stApp{background:#1a1a2e}
+        .main .block-container{background:#2b2b3d;border-radius:20px;padding:1.5rem 1rem;box-shadow:0 4px 20px rgba(0,0,0,0.4);margin-top:10px;color:#f0f0f0;max-width:800px}
         h1,h2,h3,h4,h5,h6,p,span,div,label{color:#f0f0f0!important}
-        .stTabs [role="tablist"]{gap:.2rem;flex-wrap:wrap}
-        .stTabs [role="tab"]{background:#3a3a4e;border:none;border-radius:10px;padding:.4rem .6rem;color:#ccc!important;font-weight:500;font-size:.85rem}
-        .stTabs [aria-selected="true"]{background:#f3831f;color:#fff!important}
         .stButton>button{background:#f3831f;color:white;border:none;border-radius:10px;padding:.5rem 1rem;font-weight:600;width:100%;min-height:44px}
         .stButton>button:hover{background:#d35400}
+        .sidebar .stButton>button{background:#3a3a4e;color:#ccc;border:1px solid #555}
+        .sidebar .stButton>button:hover{background:#4a4a5e}
         </style>
         """
     else:
         return """
         <style>
-        .stApp{background:#f5f7fa}.main .block-container{background:#fff;border-radius:20px;padding:1.5rem 1rem;box-shadow:0 4px 20px rgba(0,0,0,0.05);margin-top:10px;color:#1a1a1a;max-width:700px;margin-left:auto;margin-right:auto}
+        .stApp{background:#f5f7fa}
+        .main .block-container{background:#fff;border-radius:20px;padding:1.5rem 1rem;box-shadow:0 4px 20px rgba(0,0,0,0.05);margin-top:10px;color:#1a1a1a;max-width:800px}
         h1,h2,h3,h4,h5,h6,p,span,div,label{color:#1a1a1a!important}
-        .stTabs [role="tablist"]{gap:.2rem;flex-wrap:wrap}
-        .stTabs [role="tab"]{background:#e8ecf1;border:none;border-radius:10px;padding:.4rem .6rem;color:#333!important;font-weight:500;font-size:.85rem}
-        .stTabs [aria-selected="true"]{background:#f3831f;color:#fff!important}
         .stButton>button{background:#f3831f;color:white;border:none;border-radius:10px;padding:.5rem 1rem;font-weight:600;width:100%;min-height:44px}
         .stButton>button:hover{background:#d35400}
         </style>
@@ -430,17 +418,17 @@ def _sayfa_yapboz():
     with col2:
         otomatik_doldur = st.checkbox("Opsiyonel otomatik doldur", key="otomatik_doldur")
         if st.button("🤖 Hepsini Otomatik Doldur", key="otomatik_doldur_btn"):
-            for gemi in gemiler:
-                for mak in makineler:
-                    if not vardiya_plani_kontrol(gemi["id"], mak["id"], sec_tarih):
-                        oneri = onerileri_hesapla(gemi["id"], mak["id"], sec_tarih, limit=1)
-                        if oneri and not oneri[0].get("zaten_atanmis"):
-                            bas_saat, bit_saat = VARDIYA_SAATLERI.get(oneri[0]["vardiya_tipi"], ("08:00","08:00"))
-                            try:
-                                sql_run("INSERT INTO vardiya_plan(personel_id,gemi_id,makine_tipi_id,tarih,baslangic_saat,bitis_saat) VALUES(?,?,?,?,?,?)",
-                                        (oneri[0]["id"], gemi["id"], mak["id"], sec_tarih.isoformat(), bas_saat, bit_saat))
-                                sql_run("INSERT INTO performans_gecmis(personel_id,tarih,puan,kaynak) VALUES(?,?,?,?)",(oneri[0]["id"],sec_tarih.isoformat(),oneri[0].get("is_kalitesi") or 3,'otomatik'))
-                            except sqlite3.IntegrityError: pass
+            with st.spinner("Otomatik dolduruluyor..."):
+                for gemi in gemiler:
+                    for mak in makineler:
+                        if not vardiya_plani_kontrol(gemi["id"], mak["id"], sec_tarih):
+                            oneri = onerileri_hesapla(gemi["id"], mak["id"], sec_tarih, limit=1)
+                            if oneri and not oneri[0].get("zaten_atanmis"):
+                                bas_saat, bit_saat = VARDIYA_SAATLERI.get(oneri[0]["vardiya_tipi"], ("08:00","08:00"))
+                                try:
+                                    sql_run("INSERT INTO vardiya_plan(personel_id,gemi_id,makine_tipi_id,tarih,baslangic_saat,bitis_saat) VALUES(?,?,?,?,?,?)",
+                                            (oneri[0]["id"], gemi["id"], mak["id"], sec_tarih.isoformat(), bas_saat, bit_saat))
+                                except sqlite3.IntegrityError: pass
             st.success("Tüm boş pozisyonlar dolduruldu!"); st.rerun()
     izinli = {r["personel_id"] for r in sql_all("SELECT personel_id FROM izin WHERE ? BETWEEN baslangic AND bitis", (sec_tarih.isoformat(),))}
     for gemi in gemiler:
@@ -474,7 +462,6 @@ def _sayfa_yapboz():
                         gemi_konum = sql_one("SELECT konum FROM gemi WHERE id=?",(gemi["id"],))["konum"]
                         if p["vardiya_tipi"] == "GECE" and gemi_konum != "Gecede": continue
                         if p["vardiya_tipi"] in VARDIYA_KONUM_ESLESME and gemi_konum != VARDIYA_KONUM_ESLESME[p["vardiya_tipi"]]: continue
-                        # Saat çakışma kontrolü
                         bas_saat, bit_saat = VARDIYA_SAATLERI.get(p["vardiya_tipi"], ("08:00","08:00"))
                         if saat_cakismasi_var(p["id"], sec_tarih, bas_saat, bit_saat): continue
                         uygun.append(f"{p['ad']} {p['soyad']} ({p.get('durum','')})")
@@ -553,21 +540,17 @@ def _sayfa_personel():
     cols = st.columns(len(VARDIYA_TIPLERI) + 3)
     with cols[0]:
         if st.button("Tümü", key="filtre_tumu"):
-            st.session_state.fv = None
-            st.session_state.fa = None
+            st.session_state.fv = None; st.session_state.fa = None
     for i, vt in enumerate(VARDIYA_TIPLERI):
         with cols[i + 1]:
             if st.button(vt, key=f"filtre_{vt}"):
-                st.session_state.fv = vt
-                st.session_state.fa = None
+                st.session_state.fv = vt; st.session_state.fa = None
     with cols[-2]:
         if st.button("Aktif", key="filtre_aktif"):
-            st.session_state.fa = "aktif"
-            st.session_state.fv = None
+            st.session_state.fa = "aktif"; st.session_state.fv = None
     with cols[-1]:
         if st.button("Pasif", key="filtre_pasif"):
-            st.session_state.fa = "pasif"
-            st.session_state.fv = None
+            st.session_state.fa = "pasif"; st.session_state.fv = None
     fv = st.session_state.get("fv", None)
     fa = st.session_state.get("fa", None)
     q="SELECT p.id,p.ad,p.soyad,g.ad AS gemi,p.gemi_id_list,p.makine_tipi_id_list,p.vardiya_tipi,p.vardiya_gunleri,p.gemiden_cekilme,p.carkci_ile_sorun,p.gemi_tutumu,p.izin_tercih_gunleri,p.izin_saat_araligi,p.is_kalitesi,p.performans_notu,p.durum,p.aktif FROM personel p LEFT JOIN gemi g ON g.id=p.gemi_id"
@@ -619,7 +602,6 @@ def _sayfa_personel():
                     st.markdown(f"**NLP Skoru:** {nlp_skor(p.get('performans_notu') or '') + nlp_skor(p.get('carkci_sorun_notu') or ''):.2f}")
                     st.markdown(f"**Performans Notu:** {p.get('performans_notu') or '-'}")
                     st.markdown(f"**Çarkçı Sorun Notu:** {p.get('carkci_sorun_notu') or '-'}")
-                # Son 7 gün çalışma/izin
                 bugun = date.today()
                 son_7_gun = [(bugun - timedelta(days=i)).isoformat() for i in range(7)]
                 calisma_gunleri = sql_all("SELECT tarih FROM vardiya_plan WHERE personel_id=? AND tarih >= ?", (pid, (bugun - timedelta(days=7)).isoformat()))
@@ -627,14 +609,10 @@ def _sayfa_personel():
                 st.markdown("**Son 7 Gün:**")
                 gunler_str = ""
                 for gun in son_7_gun:
-                    if any(g["tarih"] == gun for g in calisma_gunleri):
-                        gunler_str += f"🟢 {gun} | "
-                    elif any(g["baslangic"] <= gun <= g["bitis"] for g in izin_gunleri):
-                        gunler_str += f"🔴 {gun} | "
-                    else:
-                        gunler_str += f"⚪ {gun} | "
+                    if any(g["tarih"] == gun for g in calisma_gunleri): gunler_str += f"🟢 {gun} | "
+                    elif any(g["baslangic"] <= gun <= g["bitis"] for g in izin_gunleri): gunler_str += f"🔴 {gun} | "
+                    else: gunler_str += f"⚪ {gun} | "
                 st.text(gunler_str)
-                # Sertifikalar
                 sertifikalar = sql_all("SELECT m.ad AS makine, s.sertifika_adi, s.gecerlilik_tarihi FROM personel_sertifika s JOIN makine_tipi m ON s.makine_tipi_id=m.id WHERE s.personel_id=?", (pid,))
                 if sertifikalar:
                     st.markdown("**Sertifikalar:**")
@@ -827,7 +805,6 @@ def _sayfa_acil():
     st.subheader("⚡ Acil Panel")
     gem=sql_all("SELECT id,ad,konum FROM gemi ORDER BY ad"); mak=sql_all("SELECT id,ad FROM makine_tipi ORDER BY ad")
     bugun=date.today(); izinli=bugun_izinli_ids()
-    # Dün kim çalıştı?
     with st.expander("📅 Dün Kim Çalıştı?"):
         dun = (bugun - timedelta(days=1)).isoformat()
         col_d1, col_d2 = st.columns(2)
@@ -837,40 +814,38 @@ def _sayfa_acil():
             dun_mak = st.selectbox("Makine", [m["id"] for m in mak], format_func=lambda i: next(m["ad"] for m in mak if m["id"]==i), key="dun_mak")
         if st.button("🔍 Sorgula", key="dun_sorgu"):
             dun_atama = sql_one("SELECT p.ad||' '||p.soyad AS isim, v.baslangic_saat, v.bitis_saat FROM vardiya_plan v JOIN personel p ON v.personel_id=p.id WHERE v.gemi_id=? AND v.makine_tipi_id=? AND v.tarih=?", (dun_gemi, dun_mak, dun))
-            if dun_atama:
-                st.success(f"Dün: **{dun_atama['isim']}** ({dun_atama['baslangic_saat']} - {dun_atama['bitis_saat']})")
-            else:
-                st.info("Dün bu pozisyonda kimse çalışmamış.")
-    # Diğer acil panel bileşenleri (öncekiyle aynı)
+            if dun_atama: st.success(f"Dün: **{dun_atama['isim']}** ({dun_atama['baslangic_saat']} - {dun_atama['bitis_saat']})")
+            else: st.info("Dün bu pozisyonda kimse çalışmamış.")
     with st.expander("🏝️ Personeli İskeleye Çıkar"):
         isk_personel = st.selectbox("Personel Seç", [f"{p['ad']} {p['soyad']} (ID:{p['id']})" for p in sql_all("SELECT id,ad,soyad FROM personel WHERE aktif=1 AND durum='Gemide' ORDER BY ad")], key="iskele_cikar")
         if st.button("🔄 İskeleye Çıkar", key="btn_iskele"):
             if isk_personel: pid = int(isk_personel.split("ID:")[1].replace(")","")); sql_run("UPDATE personel SET durum='İskelede' WHERE id=?", (pid,)); st.success(f"{isk_personel.split(' (')[0]} iskeleye çıkarıldı!"); st.rerun()
-    with st.expander("🚀 İskeledekileri Akıllı Dağıt (NLP Destekli Öneri Motoru)"):
+    with st.expander("🚀 İskeledekileri Akıllı Dağıt"):
         if st.button("🧠 Akıllı Dağıtım Başlat", key="btn_akilli_dagit"):
-            iskeledekiler = sql_all("SELECT * FROM personel WHERE aktif=1 AND durum='İskelede'")
-            if not iskeledekiler: st.warning("İskelede bekleyen personel yok.")
-            else:
-                atanan = 0
-                for p in iskeledekiler:
-                    gids = _id_listesi(p.get("gemi_id_list")) or ([p["gemi_id"]] if p.get("gemi_id") else [])
-                    mids = _id_listesi(p.get("makine_tipi_id_list")) or ([p["makine_tipi_id"]] if p.get("makine_tipi_id") else [])
-                    en_iyi = None; en_iyi_puan = -999
-                    for gid in gids:
-                        for mid in mids:
-                            if vardiya_plani_kontrol(gid, mid, bugun): continue
-                            oneri_listesi = onerileri_hesapla(gid, mid, bugun, limit=1)
-                            if oneri_listesi and oneri_listesi[0]["id"] == p["id"] and oneri_listesi[0]["puan"] > en_iyi_puan:
-                                en_iyi = (gid, mid); en_iyi_puan = oneri_listesi[0]["puan"]
-                    if en_iyi:
-                        try:
-                            bas_saat, bit_saat = VARDIYA_SAATLERI.get(p["vardiya_tipi"], ("08:00","08:00"))
-                            sql_run("INSERT INTO vardiya_plan(personel_id,gemi_id,makine_tipi_id,tarih,baslangic_saat,bitis_saat) VALUES(?,?,?,?,?,?)", (p["id"], en_iyi[0], en_iyi[1], bugun.isoformat(), bas_saat, bit_saat))
-                            sql_run("UPDATE personel SET durum='Gemide' WHERE id=?", (p["id"],))
-                            atanan += 1
-                        except sqlite3.IntegrityError: pass
-                if atanan > 0: st.success(f"{atanan} personel en uygun pozisyonlara yerleştirildi!"); st.rerun()
-                else: st.warning("Hiçbir personel uygun pozisyona yerleştirilemedi.")
+            with st.spinner("Akıllı dağıtım yapılıyor..."):
+                iskeledekiler = sql_all("SELECT * FROM personel WHERE aktif=1 AND durum='İskelede'")
+                if not iskeledekiler: st.warning("İskelede bekleyen personel yok.")
+                else:
+                    atanan = 0
+                    for p in iskeledekiler:
+                        gids = _id_listesi(p.get("gemi_id_list")) or ([p["gemi_id"]] if p.get("gemi_id") else [])
+                        mids = _id_listesi(p.get("makine_tipi_id_list")) or ([p["makine_tipi_id"]] if p.get("makine_tipi_id") else [])
+                        en_iyi = None; en_iyi_puan = -999
+                        for gid in gids:
+                            for mid in mids:
+                                if vardiya_plani_kontrol(gid, mid, bugun): continue
+                                oneri_listesi = onerileri_hesapla(gid, mid, bugun, limit=1)
+                                if oneri_listesi and oneri_listesi[0]["id"] == p["id"] and oneri_listesi[0]["puan"] > en_iyi_puan:
+                                    en_iyi = (gid, mid); en_iyi_puan = oneri_listesi[0]["puan"]
+                        if en_iyi:
+                            try:
+                                bas_saat, bit_saat = VARDIYA_SAATLERI.get(p["vardiya_tipi"], ("08:00","08:00"))
+                                sql_run("INSERT INTO vardiya_plan(personel_id,gemi_id,makine_tipi_id,tarih,baslangic_saat,bitis_saat) VALUES(?,?,?,?,?,?)", (p["id"], en_iyi[0], en_iyi[1], bugun.isoformat(), bas_saat, bit_saat))
+                                sql_run("UPDATE personel SET durum='Gemide' WHERE id=?", (p["id"],))
+                                atanan += 1
+                            except sqlite3.IntegrityError: pass
+                    if atanan > 0: st.success(f"{atanan} personel en uygun pozisyonlara yerleştirildi!"); st.rerun()
+                    else: st.warning("Hiçbir personel uygun pozisyona yerleştirilemedi.")
     st.divider()
     st.markdown("### 👤 Boştakiler")
     if st.button("🔍 Listele",key="bbos"):
@@ -944,20 +919,21 @@ def _sayfa_oneri():
         if st.button("🚀 Oluştur",key="btp"):
             if not sg or not sm: st.error("Seçim yapın")
             else:
-                kul={}; top=0
-                for g in sg:
-                    for m in sm:
-                        d=ba
-                        while d<=bi:
-                            if d.weekday() in gi and not vardiya_plani_kontrol(g,m,d):
-                                on=onerileri_hesapla(g,m,d,limit=10,esnek_cakisma=esnek); on.sort(key=lambda x:kul.get(x["id"],0))
-                                if on:
-                                    sec=on[0]
-                                    if not sec.get("zaten_atanmis"):
-                                        bas_saat, bit_saat = VARDIYA_SAATLERI.get(sec["vardiya_tipi"], ("08:00","08:00"))
-                                        try: sql_run("INSERT INTO vardiya_plan(personel_id,gemi_id,makine_tipi_id,tarih,baslangic_saat,bitis_saat) VALUES(?,?,?,?,?,?)",(sec["id"],g,m,d.isoformat(),bas_saat,bit_saat)); kul[sec["id"]]=kul.get(sec["id"],0)+1; top+=1
-                                        except sqlite3.IntegrityError: pass
-                            d+=timedelta(days=1)
+                with st.spinner("Toplu planlama yapılıyor..."):
+                    kul={}; top=0
+                    for g in sg:
+                        for m in sm:
+                            d=ba
+                            while d<=bi:
+                                if d.weekday() in gi and not vardiya_plani_kontrol(g,m,d):
+                                    on=onerileri_hesapla(g,m,d,limit=10,esnek_cakisma=esnek); on.sort(key=lambda x:kul.get(x["id"],0))
+                                    if on:
+                                        sec=on[0]
+                                        if not sec.get("zaten_atanmis"):
+                                            bas_saat, bit_saat = VARDIYA_SAATLERI.get(sec["vardiya_tipi"], ("08:00","08:00"))
+                                            try: sql_run("INSERT INTO vardiya_plan(personel_id,gemi_id,makine_tipi_id,tarih,baslangic_saat,bitis_saat) VALUES(?,?,?,?,?,?)",(sec["id"],g,m,d.isoformat(),bas_saat,bit_saat)); kul[sec["id"]]=kul.get(sec["id"],0)+1; top+=1
+                                            except sqlite3.IntegrityError: pass
+                                d+=timedelta(days=1)
                 st.success(f"{top} vardiya adil dağıtıldı"); st.rerun()
     st.divider()
     with st.expander("🗑️ Vardiya Sil"):
@@ -983,7 +959,6 @@ def _sayfa_oneri():
         else: st.success(f"{len(rows)} aday:"); st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
     st.divider(); st.markdown("#### Tekil Ata (saatli)")
     ps=st.selectbox("Personel",[f"{p['ad']} {p['soyad']}" for p in sql_all("SELECT id,ad,soyad,vardiya_tipi FROM personel WHERE aktif=1")],key="vdp")
-    # Saat seçimi
     st.caption("Çalışma Saatleri (varsayılan vardiya tipine göre)")
     vt_ps = sql_one("SELECT vardiya_tipi FROM personel WHERE ad||' '||soyad=?", (ps,))
     varsayilan_bas, varsayilan_bit = VARDIYA_SAATLERI.get(vt_ps["vardiya_tipi"] if vt_ps else "SABIT", ("08:00","08:00"))
@@ -1007,6 +982,35 @@ def _sayfa_oneri():
 
 def _sayfa_bilgi():
     st.subheader("📊 Bilgi & Rapor")
+    # Kartlar ile Dashboard
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        with st.container():
+            st.markdown("""
+            <div style='background:#3a3a4e;border-radius:10px;padding:15px;text-align:center'>
+                <h3 style='margin:0;color:#f0f0f0'>👥 Toplam Personel</h3>
+                <h2 style='margin:0;color:#f3831f'>""" + str(sql_one("SELECT COUNT(*) AS c FROM personel WHERE aktif=1")["c"]) + """</h2>
+            </div>
+            """, unsafe_allow_html=True)
+    with col2:
+        with st.container():
+            st.markdown("""
+            <div style='background:#3a3a4e;border-radius:10px;padding:15px;text-align:center'>
+                <h3 style='margin:0;color:#f0f0f0'>🚢 Toplam Gemi</h3>
+                <h2 style='margin:0;color:#f3831f'>""" + str(sql_one("SELECT COUNT(*) AS c FROM gemi")["c"]) + """</h2>
+            </div>
+            """, unsafe_allow_html=True)
+    with col3:
+        izinli_sayi = len(sql_all("SELECT p.id FROM izin i JOIN personel p ON p.id=i.personel_id WHERE date('now') BETWEEN i.baslangic AND i.bitis"))
+        with st.container():
+            st.markdown("""
+            <div style='background:#3a3a4e;border-radius:10px;padding:15px;text-align:center'>
+                <h3 style='margin:0;color:#f0f0f0'>🏝️ Bugün İzinde</h3>
+                <h2 style='margin:0;color:#f3831f'>""" + str(izinli_sayi) + """</h2>
+            </div>
+            """, unsafe_allow_html=True)
+    st.divider()
+    # Butonlar
     c1,c2,c3=st.columns(3)
     with c1:
         if st.button("💾 Yedekle",key="byedek"): st.success(f"Yedek: {veritabani_yedekle().name}")
@@ -1068,22 +1072,33 @@ def _sayfa_bilgi():
         if gec: dfp=pd.DataFrame(gec); dfp['tarih']=pd.to_datetime(dfp['tarih']); st.line_chart(dfp.set_index("tarih")["puan"], use_container_width=True)
         else: st.info("Geçmiş yok")
     st.divider()
-    st.metric("Toplam Personel (Aktif)", sql_one("SELECT COUNT(*) AS c FROM personel WHERE aktif=1")["c"])
-    st.metric("Toplam Gemi", sql_one("SELECT COUNT(*) AS c FROM gemi")["c"])
-    st.divider(); st.markdown("#### 📥 Excel Çıktısı")
+    st.markdown("#### 📥 Excel Çıktısı")
     plan=sql_all("SELECT v.tarih,g.ad AS gemi,m.ad AS makine,p.ad||' '||p.soyad AS personel,v.baslangic_saat,v.bitis_saat FROM vardiya_plan v JOIN gemi g ON v.gemi_id=g.id JOIN makine_tipi m ON v.makine_tipi_id=m.id JOIN personel p ON v.personel_id=p.id ORDER BY v.tarih DESC")
     if plan: st.dataframe(pd.DataFrame(plan), use_container_width=True, hide_index=True); buf=io.BytesIO(); pd.DataFrame(plan).to_excel(buf,index=False); buf.seek(0); st.download_button("📥 Excel",data=buf,file_name="vardiya_plani.xlsx")
 
 def main():
-    st.set_page_config(page_title="Ordino Yağcı", page_icon="⚓", layout="centered")
+    st.set_page_config(page_title="Ordino Yağcı", page_icon="⚓", layout="wide")
     if "tema_koyu" not in st.session_state: st.session_state.tema_koyu = True
     koyu = st.session_state.tema_koyu
     st.markdown(_tema_css(koyu), unsafe_allow_html=True)
     init_db()
-    col_title, col_tema = st.columns([5,1])
-    with col_title: st.title("⚓ Ordino Yağcı Planlaması")
-    with col_tema:
-        if st.button("🌓 Tema Değiştir", key="tema_btn"): st.session_state.tema_koyu = not koyu; st.rerun()
+    # Sidebar
+    with st.sidebar:
+        st.image("https://img.icons8.com/color/96/000000/ship-wheel.png", width=50)
+        st.title("⚓ Ordino Yağcı")
+        st.markdown("---")
+        st.subheader("🎨 Tema")
+        if st.button("🌓 Tema Değiştir", key="tema_sidebar"):
+            st.session_state.tema_koyu = not koyu
+            st.rerun()
+        st.markdown("---")
+        st.subheader("📱 Mobil")
+        st.markdown("- Safari → Paylaş → Ana Ekrana Ekle")
+        st.markdown("- Chrome → Ana Ekrana Ekle")
+        st.markdown("---")
+        st.caption("v3.0 · Tüm hakları saklıdır")
+    # Ana içerik
+    st.title("⚓ Ordino Yağcı Planlaması")
     t1,t2,t3,t4,t5,t6=st.tabs(["🧩 Yapboz","⚡ Acil","🚢 Gemiler","👷 Personel & İzin","✦ Öneri","📊 Bilgi"])
     with t1: _sayfa_yapboz()
     with t2: _sayfa_acil()
@@ -1091,8 +1106,6 @@ def main():
     with t4: _sayfa_personel(); st.divider(); _sayfa_izin()
     with t5: _sayfa_oneri(); st.divider(); _sayfa_carkci()
     with t6: _sayfa_bilgi()
-    st.divider()
-    with st.expander("📱 Telefonda Kullanım"): st.markdown("- Safari → Paylaş → Ana Ekrana Ekle\n- Chrome → Ana Ekrana Ekle")
 
 if __name__ == "__main__":
     main()
