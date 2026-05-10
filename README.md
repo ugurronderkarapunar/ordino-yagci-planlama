@@ -188,9 +188,9 @@ flowchart TD
     F --> F2[Sertifika yönet]
     F --> F3[İzin ekle / toplu izin yükle / takvimde gör]
 
-    G --> G1[Toplu planlama (adil dağıtım)]
+    G --> G1["Toplu planlama (adil dağıtım)"]
     G --> G2[Tek seferlik öneri]
-    G --> G3[Tekil ata (manuel)]
+    G --> G3["Tekil ata (manuel)"]
     G --> G4[Vardiya sil]
     G --> G5[Çarkçı kaydı ve puan kırma]
 
