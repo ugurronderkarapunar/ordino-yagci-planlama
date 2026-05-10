@@ -1,5 +1,5 @@
 """
-Ordino Yağcı Planlaması — TÜM DÜZELTMELER + Excel'den Toplu Personel
+Ordino Yağcı Planlaması — TEMİZ + YENİ ÖZELLİKLER (Arama, Gün Temizle, İskele Çıkar, Toplu İzin)
 Çalıştır: streamlit run app.py
 """
 from __future__ import annotations
@@ -14,7 +14,6 @@ from fpdf import FPDF
 
 # ---------- VERİTABANI ----------
 DB_PATH = Path(__file__).parent / "ordino.db"
-FOTO_DIR = Path(__file__).parent / "gemi_fotolari"
 YEDEK_DIR = Path(__file__).parent / "yedekler"
 
 def get_connection():
@@ -54,7 +53,7 @@ def veritabani_yedekle():
 def init_db():
     conn = get_connection()
     c = conn.cursor()
-    c.execute("CREATE TABLE IF NOT EXISTS gemi (id INTEGER PRIMARY KEY AUTOINCREMENT, ad TEXT UNIQUE NOT NULL, kod TEXT, konum TEXT, foto TEXT)")
+    c.execute("CREATE TABLE IF NOT EXISTS gemi (id INTEGER PRIMARY KEY AUTOINCREMENT, ad TEXT UNIQUE NOT NULL, kod TEXT, konum TEXT)")
     c.execute("CREATE TABLE IF NOT EXISTS makine_tipi (id INTEGER PRIMARY KEY AUTOINCREMENT, ad TEXT UNIQUE NOT NULL)")
     c.execute("""CREATE TABLE IF NOT EXISTS personel (
         id INTEGER PRIMARY KEY AUTOINCREMENT, ad TEXT NOT NULL, soyad TEXT NOT NULL,
@@ -92,8 +91,7 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT, personel_id INTEGER NOT NULL,
         tarih TEXT NOT NULL, puan INTEGER NOT NULL, kaynak TEXT DEFAULT 'manuel',
         FOREIGN KEY(personel_id) REFERENCES personel(id) ON DELETE CASCADE)""")
-    # Eksik sütunları ekle
-    for tab, col, typ in [("gemi","konum","TEXT"),("gemi","foto","TEXT"),
+    for tab, col, typ in [("gemi","konum","TEXT"),
                           ("personel","gemi_id_list","TEXT"),("personel","makine_tipi_id_list","TEXT"),
                           ("personel","gemiden_cekilme","INTEGER DEFAULT 0"),("personel","carkci_ile_sorun","INTEGER DEFAULT 0"),
                           ("personel","carkci_sorun_notu","TEXT"),("personel","gemi_tutumu","TEXT"),
@@ -175,9 +173,9 @@ def vardiya_plani_kontrol(gemi_id, makine_tipi_id, tarih):
 def onerileri_hesapla(gemi_id, makine_tipi_id, hedef_tarih, cikan_id=None, limit=5, esnek_cakisma=False):
     mevcut = vardiya_plani_kontrol(gemi_id, makine_tipi_id, hedef_tarih)
     if mevcut:
-        p = sql_one("SELECT id,ad,soyad,vardiya_tipi,gemi_id,gemi_id_list,makine_tipi_id,makine_tipi_id_list,carkci_ile_sorun,is_kalitesi,durum FROM personel WHERE id=?", (mevcut,))
+        p = sql_one("SELECT id,ad,soyad,vardiya_tipi FROM personel WHERE id=?", (mevcut,))
         if p: return [{**p, "puan":999, "uyari_8_5":p.get("vardiya_tipi")=="8_5", "zaten_atanmis":True}]
-    tum = sql_all("SELECT id,ad,soyad,vardiya_tipi,gemi_id,gemi_id_list,makine_tipi_id,makine_tipi_id_list,carkci_ile_sorun,is_kalitesi,durum FROM personel WHERE aktif=1 AND durum IN ('Gemide','İskelede')")
+    tum = sql_all("SELECT * FROM personel WHERE aktif=1 AND durum IN ('Gemide','İskelede')")
     gemi_konum = sql_one("SELECT konum FROM gemi WHERE id=?", (gemi_id,))["konum"]
     sonuclar = []
     for p in tum:
@@ -262,9 +260,7 @@ def pdf_rapor_olustur(tip="aylik_ozet", ay=None, yil=None):
             pdf.cell(50,7,tr_to_en(f"{p['ad']} {p['soyad']}"),1)
             pdf.cell(30,7,str(calisma),1); pdf.cell(30,7,str(izin_gun),1); pdf.cell(30,7,str(calisma+izin_gun),1); pdf.ln()
     else:
-        pdf.set_font('Arial','B',14)
-        pdf.cell(0,10,'Vardiya Plani',0,1,'C')
-        pdf.ln(5)
+        pdf.set_font('Arial','B',14); pdf.cell(0,10,'Vardiya Plani',0,1,'C'); pdf.ln(5)
         pdf.set_font('Arial','B',9)
         pdf.cell(30,7,'Tarih',1); pdf.cell(40,7,'Gemi',1); pdf.cell(35,7,'Makine',1); pdf.cell(40,7,'Personel',1); pdf.ln()
         pdf.set_font('Arial','',9)
@@ -298,6 +294,13 @@ def _sayfa_yapboz():
     gemiler = sql_all("SELECT id,ad FROM gemi ORDER BY ad")
     makineler = sql_all("SELECT id,ad FROM makine_tipi ORDER BY ad")
     if not gemiler or not makineler: st.warning("Gemi ve makine ekleyin."); return
+    
+    # Günü temizle butonu
+    if st.button("🧹 Bu Tarihteki Tüm Atamaları Temizle", key="temizle_yapboz", type="secondary"):
+        sql_run("DELETE FROM vardiya_plan WHERE tarih=?", (sec_tarih.isoformat(),))
+        st.success(f"{sec_tarih.strftime('%d.%m.%Y')} tarihindeki tüm atamalar silindi!")
+        st.rerun()
+    
     izinli = {r["personel_id"] for r in sql_all("SELECT personel_id FROM izin WHERE ? BETWEEN baslangic AND bitis", (sec_tarih.isoformat(),))}
     for gemi in gemiler:
         st.markdown(f"### 🚢 {gemi['ad']}")
@@ -357,36 +360,33 @@ def _sayfa_excel():
     st.divider()
     g_rows = sql_all("SELECT g.id,g.ad,g.kod,g.konum,COUNT(p.id) AS personel FROM gemi g LEFT JOIN personel p ON p.gemi_id=g.id GROUP BY g.id ORDER BY g.ad")
     st.dataframe(pd.DataFrame(g_rows), use_container_width=True, hide_index=True)
+    
+    # Gemi bazlı personel listesi
+    with st.expander("👥 Gemi Bazlı Personel Listesi"):
+        sec_gemi = st.selectbox("Gemi Seçin", [g["id"] for g in g_rows], format_func=lambda i: next((g["ad"] for g in g_rows if g["id"]==i), ""), key="gemi_bazli")
+        if sec_gemi:
+            per_list = sql_all("SELECT ad, soyad, vardiya_tipi, durum FROM personel WHERE aktif=1 AND (gemi_id=? OR gemi_id_list LIKE ?)", (sec_gemi, f'%{sec_gemi}%'))
+            if per_list:
+                st.dataframe(pd.DataFrame(per_list), use_container_width=True, hide_index=True)
+            else:
+                st.info("Bu gemide personel yok.")
+    
     c1,c2=st.columns(2)
     with c1:
-        with st.expander("✏️ Gemi Düzenle/Sil (Fotoğraf)"):
+        with st.expander("✏️ Gemi Düzenle/Sil"):
             if g_rows:
                 gm={f"{r['ad']} (ID:{r['id']})":r for r in g_rows}
                 gs=st.selectbox("Gemi",list(gm.keys()),key="gds"); gr=gm[gs]
                 na=st.text_input("Ad",gr["ad"] or "",key="gna"); nk=st.text_input("Kod",gr["kod"] or "",key="gnk")
                 nkon=st.selectbox("Konum",GEMI_KONUMLARI,index=GEMI_KONUMLARI.index(gr["konum"]) if gr["konum"] in GEMI_KONUMLARI else 3,key="gnkon")
-                if gr.get("foto") and Path(gr["foto"]).exists():
-                    st.image(str(gr["foto"]),width=200)
-                    if st.button("🗑️ Fotoğrafı Kaldır", key="foto_sil"):
-                        os.remove(gr["foto"])
-                        sql_run("UPDATE gemi SET foto=NULL WHERE id=?",(gr["id"],))
-                        st.success("Fotoğraf kaldırıldı"); st.rerun()
-                uf=st.file_uploader("Yeni Foto",type=["png","jpg"],key="gdf")
                 if st.button("Güncelle",key="bgd"):
                     if not na: st.error("Ad boş")
                     else:
-                        fk=gr["foto"]
-                        if uf:
-                            FOTO_DIR.mkdir(exist_ok=True)
-                            fp=FOTO_DIR/f"gemi_{gr['id']}.{uf.name.split('.')[-1]}"
-                            with open(fp,"wb") as f: f.write(uf.getbuffer())
-                            fk=str(fp)
-                        sql_run("UPDATE gemi SET ad=?,kod=?,konum=?,foto=? WHERE id=?",(na.strip(),nk.strip() or None,nkon if nkon!="Belirtilmedi" else None,fk,gr["id"]))
+                        sql_run("UPDATE gemi SET ad=?,kod=?,konum=? WHERE id=?",(na.strip(),nk.strip() or None,nkon if nkon!="Belirtilmedi" else None,gr["id"]))
                         st.success("Güncellendi"); st.rerun()
                 if st.button("Sil",key="bgs",type="secondary"):
                     if sql_one("SELECT COUNT(*) AS c FROM personel WHERE gemi_id=?",(gr["id"],))["c"]>0: st.error("Bağlı personel var")
                     else:
-                        if gr.get("foto") and Path(gr["foto"]).exists(): os.remove(gr["foto"])
                         sql_run("DELETE FROM carkci WHERE gemi_id=?",(gr["id"],)); sql_run("DELETE FROM vardiya_plan WHERE gemi_id=?",(gr["id"],)); sql_run("DELETE FROM gemi WHERE id=?",(gr["id"],))
                         st.success("Silindi"); st.rerun()
     with c2:
@@ -402,37 +402,31 @@ def _sayfa_excel():
                 if st.button("Sil",key="bms",type="secondary"):
                     if mrow["c"]>0: st.error("Bağlı personel var")
                     else: sql_run("DELETE FROM vardiya_plan WHERE makine_tipi_id=?",(mrow["id"],)); sql_run("DELETE FROM makine_tipi WHERE id=?",(mrow["id"],)); st.success("Silindi"); st.rerun()
-    st.divider()
-    st.subheader("📸 Gemi Detay")
-    for g in sql_all("SELECT * FROM gemi ORDER BY ad"):
-        with st.container():
-            c1,c2=st.columns([1,2])
-            with c1:
-                if g.get("foto") and Path(g["foto"]).exists(): st.image(str(g["foto"]), use_container_width=True)
-                else: st.markdown("⚓")
-            with c2:
-                st.markdown(f"### {g['ad']} ({g.get('konum','-')})")
-                yg=sql_all("SELECT ad,soyad,vardiya_tipi FROM personel WHERE aktif=1 AND (gemi_id=? OR gemi_id_list LIKE ?)",(g["id"],f'%{g["id"]}%'))
-                if yg: st.markdown("**Yağcılar:** "+", ".join(f"{y['ad']} {y['soyad']} ({y['vardiya_tipi']})" for y in yg))
-                else: st.markdown("*Yağcı yok*")
-                ck=sql_all("SELECT ad,soyad,carkci_vardiya FROM carkci WHERE gemi_id=?",(g["id"],))
-                if ck: st.markdown("**Çarkçılar:** "+", ".join(f"{c['ad']} {c['soyad']} ({c['carkci_vardiya']})" for c in ck))
-                else: st.markdown("*Çarkçı yok*")
-            st.markdown("---")
 
 def _sayfa_personel():
     st.subheader("👷 Personel")
     gemiler=sql_all("SELECT id,ad FROM gemi ORDER BY ad")
     makineler=sql_all("SELECT id,ad FROM makine_tipi ORDER BY ad")
+    
+    # Hızlı arama
+    arama = st.text_input("🔍 Personel Ara (İsim, Soyisim, Vardiya, Gemi)", key="personel_arama")
+    
     st.caption("Filtre:")
     cs=st.columns(len(VARDIYA_TIPLERI)+1)
     if cs[0].button("Tümü",key="f0"): st.session_state.fv=None
     for i,vt in enumerate(VARDIYA_TIPLERI):
         if cs[i+1].button(vt,key=f"f{vt}"): st.session_state.fv=vt
     fv=st.session_state.get("fv",None)
+    
     q="SELECT p.id,p.ad,p.soyad,g.ad AS gemi,p.gemi_id_list,p.makine_tipi_id_list,p.vardiya_tipi,p.vardiya_gunleri,p.gemiden_cekilme,p.carkci_ile_sorun,p.gemi_tutumu,p.izin_tercih_gunleri,p.izin_saat_araligi,p.is_kalitesi,p.performans_notu,p.durum FROM personel p LEFT JOIN gemi g ON g.id=p.gemi_id"
     if fv: q+=" WHERE p.vardiya_tipi=?"; rows=sql_all(q+" ORDER BY p.id DESC",(fv,))
     else: rows=sql_all(q+" ORDER BY p.id DESC")
+    
+    # Arama filtresi
+    if arama:
+        arama = arama.lower()
+        rows = [r for r in rows if arama in f"{r['ad']} {r['soyad']} {r['vardiya_tipi']} {r.get('gemi','')} {r.get('durum','')}".lower()]
+    
     for s in rows:
         s["vardiya_gunleri"]=_json_gunleri_metne(s.get("vardiya_gunleri"))
         s["izin_tercih_gunleri"]=_json_gunleri_metne(s.get("izin_tercih_gunleri"))
@@ -441,11 +435,11 @@ def _sayfa_personel():
         gids=_id_listesi(s.get("gemi_id_list"))
         s["gemiler"]=", ".join(str(g) for g in gids) if gids else (s.get("gemi") or "-")
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    
     if not gemiler or not makineler: st.warning("Önce gemi/makine ekleyin."); return
-
-    # Excel'den toplu personel ekleme
+    
     with st.expander("📤 Excel'den Toplu Personel Ekle"):
-        st.markdown("Excel'deki sütunlar: **Ad, Soyad, Vardiya Tipi, Makine Tipi, Gemi, Durum** (Durum opsiyonel: Gemide/İskelede/Raporlu)")
+        st.markdown("Excel'deki sütunlar: **Ad, Soyad, Vardiya Tipi, Makine Tipi, Gemi, Durum**")
         personel_excel = st.file_uploader("Personel Excel'i seçin", type=["xlsx", "xls"], key="toplu_personel_excel")
         if personel_excel is not None:
             try:
@@ -494,8 +488,6 @@ def _sayfa_personel():
         c3,c4=st.columns(2)
         is_kal=c3.slider("İş Kalitesi (1-5)",1,5,3,key="p_ik")
         gemi_tut=c4.selectbox("Gemi İçi Tutum",["Mükemmel","İyi","Orta","Gelişmeli"],key="p_tut")
-        izin_g=st.multiselect("Tercih İzin Günleri",GUNLER_TR,key="p_ig")
-        izin_g_json=json.dumps([GUNLER_TR.index(x) for x in izin_g]) if izin_g else "[]"
         ib=c3.time_input("İzin Baş.",value=None,key="p_ib"); it=c4.time_input("İzin Bit.",value=None,key="p_it")
         pn=st.text_area("Performans Notu",key="p_not")
         if st.button("Kaydet",key="btn_pk"):
@@ -503,10 +495,11 @@ def _sayfa_personel():
             elif not mak_sec: st.error("Makine seçin")
             else:
                 try:
-                    sql_run("INSERT INTO personel(ad,soyad,gemi_id,gemi_id_list,makine_tipi_id,makine_tipi_id_list,vardiya_tipi,vardiya_gunleri,gemi_tutumu,izin_tercih_gunleri,izin_saat_araligi,is_kalitesi,performans_notu,durum) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                            (ad,soyad,gem_tek,_gemi_id_json(gem_list),int(mak_sec[0]),_makine_id_json(mak_sec),vt,gun_json,gemi_tut,izin_g_json,f"{ib.strftime('%H:%M')} - {it.strftime('%H:%M')}" if ib and it else None,is_kal,pn.strip() or None,durum))
+                    sql_run("INSERT INTO personel(ad,soyad,gemi_id,gemi_id_list,makine_tipi_id,makine_tipi_id_list,vardiya_tipi,vardiya_gunleri,gemi_tutumu,izin_saat_araligi,is_kalitesi,performans_notu,durum) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                            (ad,soyad,gem_tek,_gemi_id_json(gem_list),int(mak_sec[0]),_makine_id_json(mak_sec),vt,gun_json,gemi_tut,f"{ib.strftime('%H:%M')} - {it.strftime('%H:%M')}" if ib and it else None,is_kal,pn.strip() or None,durum))
                     st.success("Kaydedildi"); st.rerun()
                 except Exception as e: st.error(f"Hata: {e}")
+    
     with st.expander("✏️ Düzenle/Sil & Sertifika"):
         pm=_personel_label_map(sql_all("SELECT id,ad,soyad FROM personel ORDER BY ad"))
         if not pm: st.info("Personel yok"); return
@@ -550,6 +543,39 @@ def _sayfa_izin():
     st.subheader("📅 İzin")
     pl=sql_all("SELECT id,ad,soyad,vardiya_gunleri FROM personel WHERE aktif=1 ORDER BY ad")
     if not pl: st.info("Personel yok"); return
+    
+    # Toplu izin ekleme (Excel)
+    with st.expander("📤 Excel'den Toplu İzin Ekle"):
+        st.markdown("Excel'deki sütunlar: **Ad, Soyad, Başlangıç, Bitiş, Not**")
+        izin_excel = st.file_uploader("İzin Excel'i seçin", type=["xlsx", "xls"], key="toplu_izin_excel")
+        if izin_excel is not None:
+            try:
+                df = pd.read_excel(izin_excel)
+                st.dataframe(df.head(), use_container_width=True)
+                if st.button("📤 İzinleri Toplu Ekle", key="btn_toplu_izin"):
+                    eklenen = 0
+                    for _, row in df.iterrows():
+                        ad = str(row.get('Ad', '')).strip()
+                        soyad = str(row.get('Soyad', '')).strip()
+                        bas_str = str(row.get('Başlangıç', '')).strip()
+                        bit_str = str(row.get('Bitiş', '')).strip()
+                        notlar = str(row.get('Not', '')).strip() or None
+                        if not ad or not soyad or not bas_str or not bit_str: continue
+                        p = sql_one("SELECT id FROM personel WHERE ad=? AND soyad=?", (ad, soyad))
+                        if not p: continue
+                        try:
+                            bas = datetime.strptime(bas_str, "%Y-%m-%d").date()
+                            bit = datetime.strptime(bit_str, "%Y-%m-%d").date()
+                            gun = (bit - bas).days + 1
+                            if gun > 0:
+                                sql_run("INSERT INTO izin(personel_id,baslangic,bitis,gun_sayisi,notlar) VALUES(?,?,?,?,?)",
+                                        (p["id"], bas.isoformat(), bit.isoformat(), gun, notlar))
+                                eklenen += 1
+                        except: continue
+                    if eklenen > 0: st.success(f"{eklenen} izin eklendi!"); st.rerun()
+                    else: st.warning("Hiçbir izin eklenemedi.")
+            except Exception as e: st.error(f"Excel hatası: {e}")
+    
     cf,cc=st.columns([1,1])
     with cf:
         sec=st.selectbox("Personel",pl,format_func=lambda p:f"{p['ad']} {p['soyad']}",key="izp")
@@ -624,6 +650,18 @@ def _sayfa_acil():
     gem=sql_all("SELECT id,ad,konum FROM gemi ORDER BY ad")
     mak=sql_all("SELECT id,ad FROM makine_tipi ORDER BY ad")
     bugun=date.today(); izinli=bugun_izinli_ids()
+    
+    # İskeleye çıkar butonu
+    with st.expander("🏝️ Personeli İskeleye Çıkar"):
+        isk_personel = st.selectbox("Personel Seç", [f"{p['ad']} {p['soyad']} (ID:{p['id']})" for p in sql_all("SELECT id,ad,soyad FROM personel WHERE aktif=1 AND durum='Gemide' ORDER BY ad")], key="iskele_cikar")
+        if st.button("🔄 İskeleye Çıkar", key="btn_iskele"):
+            if isk_personel:
+                pid = int(isk_personel.split("ID:")[1].replace(")",""))
+                sql_run("UPDATE personel SET durum='İskelede' WHERE id=?", (pid,))
+                st.success(f"{isk_personel.split(' (')[0]} iskeleye çıkarıldı!")
+                st.rerun()
+    
+    st.divider()
     st.markdown("### 👤 Boştakiler")
     if st.button("🔍 Listele",key="bbos"):
         bos=[]
