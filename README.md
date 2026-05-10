@@ -162,8 +162,7 @@ Vardiya puanı	İZİNCİ (100) > GECE (105, sadece Gecede gemilerinde) > TERSANE
 🌓 Tema değiştirme: Koyu ve aydınlık tema arasında geçiş yapabilirsiniz. Başlığın yanındaki butona tıklamanız yeterli.
 
 📱 Mobil uyum: Telefonda rahat kullanım için optimize edilmiştir. Safari/Chrome'dan ana ekrana kısayol eklenebilir.
-
-🔄 Veri kalıcılığı: Tüm veriler ordino.db dosyasında saklanır. Uygulama kapansa da kaybolmaz. Aynı cihazda kullanıldığı sürece güvendedir.
+```mermaid
 flowchart TD
     A[Kullanıcı Girişi] --> B{Ana Menü}
     B --> C[🧩 Yapboz]
@@ -172,5 +171,33 @@ flowchart TD
     B --> F[👷 Personel & İzin]
     B --> G[✦ Öneri & Plan]
     B --> H[📊 Bilgi]
+
+    C --> C1[Tarih seç, vardiya tahtasını gör]
+    C1 --> C2[Boş hücreye uygun personeli seç]
+    C2 --> C3[Atamayı yap / çıkar]
+
+    D --> D1[Boştakiler / İskele / Tersane listele]
+    D --> D2[Anlık izin yerine öneri al]
+    D --> D3[Akıllı dağıtım başlat]
+
+    E --> E1[Gemi / Makine ekle, düzenle, sil]
+    E --> E2[Excel ile toplu veri yükle]
+    E --> E3[Gemi bazlı personel listesini gör]
+
+    F --> F1[Personel ara, filtrele, ekle, düzenle]
+    F --> F2[Sertifika yönet]
+    F --> F3[İzin ekle / toplu izin yükle / takvimde gör]
+
+    G --> G1[Toplu planlama (adil dağıtım)]
+    G --> G2[Tek seferlik öneri]
+    G --> G3[Tekil ata (manuel)]
+    G --> G4[Vardiya sil]
+    G --> G5[Çarkçı kaydı ve puan kırma]
+
+    H --> H1[Yedekleme / Test verisi / PDF rapor]
+    H --> H2[Uyarılar ve sesli okuma]
+    H --> H3[Performans özeti ve geçmiş grafikleri]
+    H --> H4[Excel çıktısı indir]
+```
 
     
