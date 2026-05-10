@@ -1,5 +1,5 @@
 """
-Ordino Yağcı Planlaması — NLP (Olumlu + Olumsuz) + Akıllı Dağıtım + Tüm İyileştirmeler
+Ordino Yağcı Planlaması — NLP + Session State Düzeltmesi
 Çalıştır: streamlit run app.py
 """
 from __future__ import annotations
@@ -119,7 +119,7 @@ PERSONEL_DURUM = ["Gemide", "İskelede", "Raporlu"]
 VARDIYA_RENKLERI = {"SABIT":"#3498db","GRUPCU":"#2ecc71","IZINCI":"#f39c12","TERSANE":"#e74c3c","8_5":"#9b59b6","GECE":"#1abc9c"}
 VARDIYA_KONUM_ESLESME = {"TERSANE":"Tersane", "8_5":"Dışarıda"}
 
-# ---------- NLP: Duygu Analizi ----------
+# ---------- NLP ----------
 OLUMLU_KELIMELER = [
     "iyi", "çalışkan", "başarılı", "güvenilir", "hızlı", "dikkatli", "özenli",
     "disiplinli", "yardımsever", "titiz", "profesyonel", "mükemmel", "harika",
@@ -136,7 +136,6 @@ AGIR_OLUMSUZ_KELIMELER = [
 ]
 
 def nlp_skor(metin: str) -> float:
-    """-1 (çok olumsuz) ile +1 (çok olumlu) arasında skor verir."""
     if not metin: return 0.0
     metin = metin.lower()
     olumlu = sum(1 for k in OLUMLU_KELIMELER if k in metin)
@@ -231,18 +230,15 @@ def onerileri_hesapla(gemi_id, makine_tipi_id, hedef_tarih, cikan_id=None, limit
         gids = _id_listesi(p.get("gemi_id_list")) or ([p.get("gemi_id")] if p.get("gemi_id") else [])
         if gemi_id not in gids: continue
         if p.get("carkci_ile_sorun"): continue
-        # NLP analizi
         performans_notu_metni = p.get("performans_notu") or ""
         carkci_notu_metni = p.get("carkci_sorun_notu") or ""
         nlp_puan = nlp_skor(performans_notu_metni) + nlp_skor(carkci_notu_metni)
-        nlp_etki = nlp_puan * 25  # -50..+50 arası etki
-        # İş kalitesi
+        nlp_etki = nlp_puan * 25
         kalite = p.get("is_kalitesi") or 3
         if kalite <= 2: kalite_puan = -30
         elif kalite == 3: kalite_puan = 0
         elif kalite == 4: kalite_puan = 10
         else: kalite_puan = 20
-        # Dinlenme ve rotasyon cezaları
         dinlenme_cezasi = -30 if gece_sonrasi_dinlenme(p["id"], hedef_tarih) else 0
         pespese_cezasi = -15 if ayni_gemi_peş_pese(p["id"], hedef_tarih, gemi_id) else 0
         fazla, gun = fazla_mesai_kontrol(p["id"], hedef_tarih)
@@ -488,13 +484,26 @@ def _sayfa_personel():
     makineler=sql_all("SELECT id,ad FROM makine_tipi ORDER BY ad")
     arama = st.text_input("🔍 Personel Ara", key="personel_arama")
     st.caption("Filtre:")
-    cs=st.columns(len(VARDIYA_TIPLERI)+3)
-    if cs[0].button("Tümü",key="f0"): st.session_state.fv=None; st.session_state.fa=None
-    for i,vt in enumerate(VARDIYA_TIPLERI):
-        if cs[i+1].button(vt,key=f"f{vt}"): st.session_state.fv=vt; st.session_state.fa=None
-    if cs[-2].button("Aktif",key="fa"): st.session_state.fa="aktif"; st.session_state.fv=None
-    if cs[-1].button("Pasif",key="fp"): st.session_state.fa="pasif"; st.session_state.fv=None
-    fv=st.session_state.get("fv",None); fa=st.session_state.get("fa",None)
+    cols = st.columns(len(VARDIYA_TIPLERI) + 3)
+    with cols[0]:
+        if st.button("Tümü", key="filtre_tumu"):
+            st.session_state.fv = None
+            st.session_state.fa = None
+    for i, vt in enumerate(VARDIYA_TIPLERI):
+        with cols[i + 1]:
+            if st.button(vt, key=f"filtre_{vt}"):
+                st.session_state.fv = vt
+                st.session_state.fa = None
+    with cols[-2]:
+        if st.button("Aktif", key="filtre_aktif"):
+            st.session_state.fa = "aktif"
+            st.session_state.fv = None
+    with cols[-1]:
+        if st.button("Pasif", key="filtre_pasif"):
+            st.session_state.fa = "pasif"
+            st.session_state.fv = None
+    fv = st.session_state.get("fv", None)
+    fa = st.session_state.get("fa", None)
     q="SELECT p.id,p.ad,p.soyad,g.ad AS gemi,p.gemi_id_list,p.makine_tipi_id_list,p.vardiya_tipi,p.vardiya_gunleri,p.gemiden_cekilme,p.carkci_ile_sorun,p.gemi_tutumu,p.izin_tercih_gunleri,p.izin_saat_araligi,p.is_kalitesi,p.performans_notu,p.durum,p.aktif FROM personel p LEFT JOIN gemi g ON g.id=p.gemi_id"
     params=()
     if fv: q+=" WHERE p.vardiya_tipi=?"; params=(fv,)
