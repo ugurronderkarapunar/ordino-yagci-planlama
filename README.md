@@ -1,0 +1,13 @@
+ onerileri_hesapla() içinde:
+- Sadece aktif=1 olanları alır
+- Sadece durum='Gemide' veya 'İskelede' olanları alır
+- İzinli olanları eler
+- Aynı gün başka gemide çalışanları eler
+- Aynı gün başka makinede çalışanları eler
+- Makine bilgisi uymayanları eler
+- Sertifikası geçersiz olanları eler
+- Gemi yetkisi olmayanları eler
+- Çarkçı sorunu olanları eler
+- GECE tipini sadece "Gecede" konumundaki gemilere atar
+- Fazla mesai kontrolü yapar
+- Vardiya tipine göre puanlama (IZINCI>TERSANE>GECE>GRUPCU>SABIT>8_5)
