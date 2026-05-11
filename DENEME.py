@@ -1,5 +1,5 @@
 """
-Ordino Yağcı Planlaması — TAM SÜRÜM (Gemi Adı Kart + Yapboz Düzeltmeleri)
+Ordino Yağcı Planlaması — TAM SÜRÜM (Gemi Adı Kart + Yapboz Düzeltmeleri + Kararlı)
 Çalıştır: streamlit run app.py
 """
 from __future__ import annotations
@@ -318,6 +318,25 @@ def _tema_css(koyu=True):
         </style>
         """
 
+# ---------- TAKVİM ----------
+def _takvim_html(yil, ay, isaretli, koyu=True):
+    son_gun = _cal.monthrange(yil, ay)[1]
+    ilk = date(yil, ay, 1).weekday()
+    bugun = date.today()
+    bg = "#2b2b2b" if koyu else "#fff"
+    tc = "#f0f0f0" if koyu else "#1a1a1a"
+    css = f"<style>.cal{{font-family:system-ui;max-width:400px;margin:0 auto;background:{bg};border-radius:16px;padding:16px;}}.cal-title{{text-align:center;font-size:18px;font-weight:600;color:{tc};margin-bottom:12px;}}.cal-grid{{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;}}.cal-hdr{{text-align:center;font-size:12px;font-weight:600;color:#aaa;padding:6px 0;}}.cal-cell{{text-align:center;padding:10px 2px;border-radius:10px;font-size:14px;font-weight:500;}}.cal-empty{{background:transparent;}}.cal-normal{{background:#3a3a3a;color:#ddd;}}.cal-izin{{background:#f3831f;color:#fff;font-weight:600;}}.cal-bugun{{background:#2b2b2b;color:#f3831f;border:2px solid #f3831f;font-weight:700;}}</style>"
+    html = css + f'<div class="cal"><div class="cal-title">{AY_ADLARI[ay]} {yil}</div><div class="cal-grid">'
+    for g in ["Pzt","Sal","Çar","Per","Cum","Cmt","Paz"]: html += f'<div class="cal-hdr">{g}</div>'
+    for _ in range(ilk): html += '<div class="cal-cell cal-empty"></div>'
+    for n in range(1, son_gun+1):
+        d = date(yil, ay, n)
+        cls = "cal-izin" if d in isaretli else "cal-normal"
+        if d == bugun: cls += " cal-bugun"
+        html += f'<div class="cal-cell {cls}">{n}</div>'
+    html += "</div></div>"
+    return html
+
 # ---------- PDF ----------
 class PDFRapor(FPDF):
     def header(self):
@@ -554,7 +573,6 @@ def _sayfa_personel():
     if arama:
         arama=arama.lower()
         rows=[r for r in rows if arama in f"{r['ad']} {r['soyad']} {r['vardiya_tipi']} {r.get('gemi','')} {r.get('durum','')}".lower()]
-    # Toplu durum değiştirme
     with st.expander("🔄 Toplu Durum Değiştir"):
         sec_personel = st.multiselect("Personel seç", [f"{r['ad']} {r['soyad']} (ID:{r['id']})" for r in rows], key="toplu_durum_personel")
         yeni_durum = st.selectbox("Yeni Durum", PERSONEL_DURUM, key="toplu_yeni_durum")
@@ -565,7 +583,6 @@ def _sayfa_personel():
                     sql_run("UPDATE personel SET durum=? WHERE id=?", (yeni_durum, pid))
                 st.toast(f"{len(ids)} personelin durumu güncellendi!", icon="🔄")
                 st.rerun()
-    # Personel kartı (GEMİ ADI EKLENDİ)
     st.subheader("🔍 Personel Kartı")
     kart_sec = st.selectbox("Personel seç (detaylı kart için)", [f"{r['ad']} {r['soyad']} (ID:{r['id']})" for r in rows], key="personel_kart")
     if kart_sec:
