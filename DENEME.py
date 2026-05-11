@@ -1,5 +1,5 @@
 """
-Ordino Yağcı Planlaması — TAM SÜRÜM (Gemi Adı Kart + Yapboz Düzeltmeleri + Kararlı)
+Ordino Yağcı Planlaması — BÜYÜK HARF DÖNÜŞÜMÜ + TÜM ÖZELLİKLER
 Çalıştır: streamlit run app.py
 """
 from __future__ import annotations
@@ -394,7 +394,7 @@ def test_verisi_olustur():
         gid = random.choice(gemiler)["id"]
         mid = random.choice(makineler)["id"]
         vt = random.choice(VARDIYA_TIPLERI)
-        sql_run("INSERT INTO personel(ad,soyad,gemi_id,makine_tipi_id,makine_tipi_id_list,vardiya_tipi,vardiya_gunleri,is_kalitesi,durum,performans_notu) VALUES(?,?,?,?,?,?,?,?,?,?)",(ad,soyad,gid,mid,_makine_id_json([mid]),vt,json.dumps(random.sample(range(7),random.randint(2,5))),random.randint(2,5),random.choice(PERSONEL_DURUM),random.choice(["iyi çalışkan","sorunlu geç kalıyor","","berbat işe yaramaz","başarılı ve dikkatli"])))
+        sql_run("INSERT INTO personel(ad,soyad,gemi_id,makine_tipi_id,makine_tipi_id_list,vardiya_tipi,vardiya_gunleri,is_kalitesi,durum,performans_notu) VALUES(?,?,?,?,?,?,?,?,?,?)",(ad.upper(),soyad.upper(),gid,mid,_makine_id_json([mid]),vt,json.dumps(random.sample(range(7),random.randint(2,5))),random.randint(2,5),random.choice(PERSONEL_DURUM),random.choice(["iyi çalışkan","sorunlu geç kalıyor","","berbat işe yaramaz","başarılı ve dikkatli"])))
     st.success("Test verileri oluşturuldu!")
     st.rerun()
 
@@ -497,9 +497,9 @@ def _sayfa_excel():
         if st.form_submit_button("➕ Ekle"):
             if not gad or not mad: st.error("Zorunlu alanlar")
             else:
-                try: sql_run("INSERT INTO gemi(ad,kod,konum) VALUES(?,?,?)",(gad.strip(),gkd.strip() or None,kon if kon!="Belirtilmedi" else None))
+                try: sql_run("INSERT INTO gemi(ad,kod,konum) VALUES(?,?,?)",(gad.strip().upper(),gkd.strip().upper() if gkd else None,kon if kon!="Belirtilmedi" else None))
                 except: st.warning("Gemi var")
-                try: sql_run("INSERT INTO makine_tipi(ad) VALUES(?)",(mad.strip(),))
+                try: sql_run("INSERT INTO makine_tipi(ad) VALUES(?)",(mad.strip().upper(),))
                 except: st.warning("Makine var")
                 st.toast("Başarıyla eklendi!", icon="✅")
                 st.rerun()
@@ -522,7 +522,7 @@ def _sayfa_excel():
                 nkon=st.selectbox("Konum",GEMI_KONUMLARI,index=GEMI_KONUMLARI.index(gr["konum"]) if gr["konum"] in GEMI_KONUMLARI else 3,key="gnkon")
                 if st.button("Güncelle",key="bgd"):
                     if not na: st.error("Ad boş")
-                    else: sql_run("UPDATE gemi SET ad=?,kod=?,konum=? WHERE id=?",(na.strip(),nk.strip() or None,nkon if nkon!="Belirtilmedi" else None,gr["id"])); st.toast("Gemi güncellendi!", icon="✏️"); st.rerun()
+                    else: sql_run("UPDATE gemi SET ad=?,kod=?,konum=? WHERE id=?",(na.strip().upper(),nk.strip().upper() if nk else None,nkon if nkon!="Belirtilmedi" else None,gr["id"])); st.toast("Gemi güncellendi!", icon="✏️"); st.rerun()
                 if st.button("Sil",key="bgs",type="secondary"):
                     if sql_one("SELECT COUNT(*) AS c FROM personel WHERE gemi_id=?",(gr["id"],))["c"]>0: st.error("Bağlı personel var")
                     else: sql_run("DELETE FROM carkci WHERE gemi_id=?",(gr["id"],)); sql_run("DELETE FROM vardiya_plan WHERE gemi_id=?",(gr["id"],)); sql_run("DELETE FROM gemi WHERE id=?",(gr["id"],)); st.toast("Gemi silindi!", icon="🗑️"); st.rerun()
@@ -535,7 +535,7 @@ def _sayfa_excel():
                 nm=st.text_input("Ad",mrow["ad"] or "",key="mna")
                 if st.button("Güncelle",key="bmd"):
                     if not nm: st.error("Ad boş")
-                    else: sql_run("UPDATE makine_tipi SET ad=? WHERE id=?",(nm.strip(),mrow["id"])); st.toast("Makine güncellendi!", icon="✏️"); st.rerun()
+                    else: sql_run("UPDATE makine_tipi SET ad=? WHERE id=?",(nm.strip().upper(),mrow["id"])); st.toast("Makine güncellendi!", icon="✏️"); st.rerun()
                 if st.button("Sil",key="bms",type="secondary"):
                     if mrow["c"]>0: st.error("Bağlı personel var")
                     else: sql_run("DELETE FROM vardiya_plan WHERE makine_tipi_id=?",(mrow["id"],)); sql_run("DELETE FROM makine_tipi WHERE id=?",(mrow["id"],)); st.toast("Makine silindi!", icon="🗑️"); st.rerun()
@@ -571,8 +571,8 @@ def _sayfa_personel():
         params=params+(1,) if fa=="aktif" else params+(0,)
     rows=sql_all(q+" ORDER BY p.id DESC",params)
     if arama:
-        arama=arama.lower()
-        rows=[r for r in rows if arama in f"{r['ad']} {r['soyad']} {r['vardiya_tipi']} {r.get('gemi','')} {r.get('durum','')}".lower()]
+        arama=arama.upper()
+        rows=[r for r in rows if arama in f"{r['ad']} {r['soyad']} {r['vardiya_tipi']} {r.get('gemi','')} {r.get('durum','')}".upper()]
     with st.expander("🔄 Toplu Durum Değiştir"):
         sec_personel = st.multiselect("Personel seç", [f"{r['ad']} {r['soyad']} (ID:{r['id']})" for r in rows], key="toplu_durum_personel")
         yeni_durum = st.selectbox("Yeni Durum", PERSONEL_DURUM, key="toplu_yeni_durum")
@@ -627,9 +627,12 @@ def _sayfa_personel():
                 if st.button("📤 Ekle", key="btn_toplu_personel"):
                     eklenen = 0
                     for _, row in df.iterrows():
-                        ad = str(row.get('Ad', '')).strip(); soyad = str(row.get('Soyad', '')).strip()
-                        vt = str(row.get('Vardiya Tipi', '')).strip(); makine_adi = str(row.get('Makine Tipi', '')).strip()
-                        gemi_adi = str(row.get('Gemi', '')).strip(); durum = str(row.get('Durum', 'Gemide')).strip()
+                        ad = str(row.get('Ad', '')).strip().upper()
+                        soyad = str(row.get('Soyad', '')).strip().upper()
+                        vt = str(row.get('Vardiya Tipi', '')).strip().upper()
+                        makine_adi = str(row.get('Makine Tipi', '')).strip().upper()
+                        gemi_adi = str(row.get('Gemi', '')).strip().upper()
+                        durum = str(row.get('Durum', 'Gemide')).strip()
                         p_not = str(row.get('Performans Notu', '')).strip() or None
                         if not ad or not soyad or not vt or not makine_adi or not gemi_adi: continue
                         if vt not in VARDIYA_TIPLERI: continue
@@ -673,7 +676,7 @@ def _sayfa_personel():
             else:
                 try:
                     sql_run("INSERT INTO personel(ad,soyad,gemi_id,gemi_id_list,makine_tipi_id,makine_tipi_id_list,vardiya_tipi,vardiya_gunleri,gemi_tutumu,izin_saat_araligi,is_kalitesi,performans_notu,durum) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                            (ad,soyad,gem_tek,_gemi_id_json(gem_list),int(mak_sec[0]),_makine_id_json(mak_sec),vt,gun_json,gemi_tut,f"{ib.strftime('%H:%M')} - {it.strftime('%H:%M')}" if ib and it else None,is_kal,pn.strip() or None,durum))
+                            (ad.strip().upper(),soyad.strip().upper(),gem_tek,_gemi_id_json(gem_list),int(mak_sec[0]),_makine_id_json(mak_sec),vt,gun_json,gemi_tut,f"{ib.strftime('%H:%M')} - {it.strftime('%H:%M')}" if ib and it else None,is_kal,pn.strip() or None,durum))
                     st.toast("Personel kaydedildi!", icon="✅")
                     st.rerun()
                 except Exception as e: st.error(f"Hata: {e}")
@@ -730,7 +733,8 @@ def _sayfa_izin():
                 if st.button("📤 Ekle", key="btn_toplu_izin"):
                     eklenen = 0
                     for _, row in df.iterrows():
-                        ad = str(row.get('Ad', '')).strip(); soyad = str(row.get('Soyad', '')).strip()
+                        ad = str(row.get('Ad', '')).strip().upper()
+                        soyad = str(row.get('Soyad', '')).strip().upper()
                         bas_str = str(row.get('Başlangıç', '')).strip(); bit_str = str(row.get('Bitiş', '')).strip()
                         notlar = str(row.get('Not', '')).strip() or None
                         if not ad or not soyad or not bas_str or not bit_str: continue
@@ -793,7 +797,7 @@ def _sayfa_carkci():
         if not ad or not soyad: st.error("Ad soyad zorunlu")
         else:
             gun_j=json.dumps([GUNLER_TR.index(g) for g in cg]) if cg else "[]"; pid_p=ys[1]
-            sql_run("INSERT INTO carkci VALUES(NULL,?,?,?,?,?,?,?,?,?)",(ad,soyad,gid,pid_p,sorun,vn,cvt,gun_j,pk))
+            sql_run("INSERT INTO carkci VALUES(NULL,?,?,?,?,?,?,?,?,?)",(ad.strip().upper(),soyad.strip().upper(),gid,pid_p,sorun,vn,cvt,gun_j,pk))
             if pid_p:
                 mev=sql_one("SELECT is_kalitesi FROM personel WHERE id=?",(pid_p,))
                 if mev: yeni=max(1,(mev["is_kalitesi"] or 3)-pk); sql_run("UPDATE personel SET is_kalitesi=?,carkci_ile_sorun=1,carkci_sorun_notu=? WHERE id=?",(yeni,sorun.strip() or None,pid_p)); sql_run("INSERT INTO performans_gecmis VALUES(NULL,?,?,?,?)",(pid_p,date.today().isoformat(),yeni,'carkci'))
