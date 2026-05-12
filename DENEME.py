@@ -1,5 +1,5 @@
 """
-Ordino Yağcı Planlaması — Gemi-Makine Eşleştirmeli Tam Sürüm
+Ordino Yağcı Planlaması — Gemi Eklerken Makine Seçimi (Tam Kod)
 Çalıştır: streamlit run app.py
 """
 from __future__ import annotations
@@ -119,7 +119,6 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT, personel_id INTEGER NOT NULL,
         tarih TEXT NOT NULL, puan INTEGER NOT NULL, kaynak TEXT DEFAULT 'manuel',
         FOREIGN KEY(personel_id) REFERENCES personel(id) ON DELETE CASCADE)""")
-    # Eski sütunlar varsa diye
     for tab, col, typ in [
         ("gemi","konum","TEXT"),
         ("personel","gemi_id_list","TEXT"),("personel","makine_tipi_id_list","TEXT"),
@@ -427,7 +426,6 @@ def test_verisi_olustur():
     for m in ["Dizel Motor", "Kompresor", "Pompa", "Jenerator"]:
         sql_run("INSERT INTO makine_tipi(ad) VALUES(?)", (m,))
     makine_ids = [r["id"] for r in sql_all("SELECT id FROM makine_tipi")]
-    # Gemi-Makine eşleştirmeleri
     eslesmeler = [
         (gemi_ids[0], [makine_ids[0], makine_ids[1]]),
         (gemi_ids[1], [makine_ids[1], makine_ids[2], makine_ids[3]]),
@@ -438,7 +436,6 @@ def test_verisi_olustur():
     for gid, mids in eslesmeler:
         for mid in mids:
             sql_run("INSERT INTO gemi_makine(gemi_id, makine_tipi_id) VALUES(?,?)", (gid, mid))
-    # Personeller
     personeller = [
         ("Ahmet", "YILMAZ", [gemi_ids[0]], [makine_ids[0], makine_ids[1]], "SABIT", [0,2,4], 4, "Gemide", "çalışkan ve dikkatli"),
         ("Mehmet", "DEMIR", [gemi_ids[1]], [makine_ids[1], makine_ids[2]], "GRUPCU", [1,3,5], 3, "Gemide", ""),
@@ -587,17 +584,40 @@ def _sayfa_yapboz():
 
 def _sayfa_excel():
     st.subheader("🚢 Gemiler & Makine")
-    # Gemi Ekle
+    # Gemi Ekle + Makine Seçimi
     with st.form("f_gemi"):
+        st.write("##### Yeni Gemi Ekle")
         c1,c2,c3 = st.columns(3)
-        gad=c1.text_input("Gemi Adı"); gkd=c2.text_input("Kod")
-        kon=c3.selectbox("Konum",GEMI_KONUMLARI,index=3)
+        gad=c1.text_input("Gemi Adı", key="gemi_adi")
+        gkd=c2.text_input("Kod (opsiyonel)", key="gemi_kod")
+        kon=c3.selectbox("Konum", GEMI_KONUMLARI, index=3, key="gemi_konum")
+        makineler = sql_all("SELECT id,ad FROM makine_tipi ORDER BY ad")
+        if makineler:
+            sec_mak = st.multiselect(
+                "Gemideki Makineler (isterseniz sonradan da atayabilirsiniz)",
+                [m["id"] for m in makineler],
+                format_func=lambda i: next((m["ad"] for m in makineler if m["id"]==i), ""),
+                key="gm_mak_sec"
+            )
+        else:
+            st.info("Önce makine tipi ekleyin.")
+            sec_mak = []
         if st.form_submit_button("➕ Gemi Ekle"):
-            if not gad: st.error("Gemi adı zorunlu")
+            if not gad:
+                st.error("Gemi adı zorunludur.")
             else:
-                try: sql_run("INSERT INTO gemi(ad,kod,konum) VALUES(?,?,?)",(gad.strip().upper(),gkd.strip().upper() if gkd else None,kon if kon!="Belirtilmedi" else None))
-                except: st.warning("Gemi zaten kayıtlı")
-                else: st.toast("Gemi eklendi!", icon="✅"); st.rerun()
+                try:
+                    sql_run("INSERT INTO gemi(ad,kod,konum) VALUES(?,?,?)",
+                            (gad.strip().upper(), gkd.strip().upper() if gkd else None,
+                             None if kon == "Belirtilmedi" else kon))
+                    new_gemi = sql_one("SELECT id FROM gemi WHERE ad=?", (gad.strip().upper(),))
+                    if new_gemi and sec_mak:
+                        for mid in sec_mak:
+                            sql_run("INSERT INTO gemi_makine(gemi_id, makine_tipi_id) VALUES(?,?)", (new_gemi["id"], mid))
+                    st.toast("Gemi ve makineleri eklendi!", icon="✅")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Hata: {e}")
 
     with st.expander("➕ Makine Tipi Ekle"):
         with st.form("f_makine"):
@@ -612,7 +632,8 @@ def _sayfa_excel():
     st.divider()
     g_rows = sql_all("SELECT g.id,g.ad,g.kod,g.konum,COUNT(p.id) AS personel FROM gemi g LEFT JOIN personel p ON p.gemi_id=g.id GROUP BY g.id ORDER BY g.ad")
     st.dataframe(pd.DataFrame(g_rows), use_container_width=True, hide_index=True)
-    with st.expander("🔗 Gemi-Makine Eşleştirme"):
+
+    with st.expander("🔗 Gemi-Makine Eşleştirme (Düzenle)"):
         gemiler = sql_all("SELECT id,ad FROM gemi ORDER BY ad")
         makineler = sql_all("SELECT id,ad FROM makine_tipi ORDER BY ad")
         sec_gemi = st.selectbox("Gemi", [g["id"] for g in gemiler], format_func=lambda i: next((g["ad"] for g in gemiler if g["id"]==i), ""), key="gm_gemi")
@@ -626,6 +647,7 @@ def _sayfa_excel():
                     sql_run("INSERT INTO gemi_makine(gemi_id, makine_tipi_id) VALUES(?,?)", (sec_gemi, mid))
                 st.toast("Gemi-makine eşleştirmesi güncellendi!", icon="🔗")
                 st.rerun()
+
     with st.expander("👥 Gemi Bazlı Personel Listesi"):
         sec_gemi = st.selectbox("Gemi Seçin", [g["id"] for g in g_rows], format_func=lambda i: next((g["ad"] for g in g_rows if g["id"]==i), ""), key="gemi_bazli")
         if sec_gemi:
@@ -639,6 +661,7 @@ def _sayfa_excel():
                 st.dataframe(df, use_container_width=True, hide_index=True)
             else:
                 st.info("Bu gemide personel yok.")
+
     c1,c2=st.columns(2)
     with c1:
         with st.expander("✏️ Gemi Düzenle/Sil"):
@@ -989,7 +1012,6 @@ def _sayfa_acil():
                         if p.get("gemi_id"): gids.append(p["gemi_id"])
                         mids = _id_listesi(p.get("makine_tipi_id_list"))
                         for gid in (gids if gids else [g["id"] for g in gem]):
-                            # Geminin makineleri
                             gemi_mak = [r["makine_tipi_id"] for r in sql_all("SELECT makine_tipi_id FROM gemi_makine WHERE gemi_id=?", (gid,))]
                             for mid in (mids if mids else gemi_mak):
                                 if vardiya_plani_kontrol(gid, mid, bugun): continue
@@ -1089,7 +1111,7 @@ def _sayfa_oneri():
                     kul={}; top=0
                     for g in sg:
                         gemi_mak = [r["makine_tipi_id"] for r in sql_all("SELECT makine_tipi_id FROM gemi_makine WHERE gemi_id=?", (g,))]
-                        for m in (gemi_mak if not sm else [mid for mid in sm if mid in gemi_mak]):  # seçili makinelerle sınırla
+                        for m in (gemi_mak if not sm else [mid for mid in sm if mid in gemi_mak]):
                             d=ba
                             while d<=bi:
                                 if d.weekday() in gi and not vardiya_plani_kontrol(g,m,d):
@@ -1203,7 +1225,7 @@ def main():
             st.session_state.tema_koyu = not koyu
             st.rerun()
         st.markdown("---")
-        st.caption("v5.0 · Gemi-makine eşleştirmeli")
+        st.caption("v5.2 · Gemi eklerken makine seçimi")
     st.title("⚓ Ordino Yağcı Planlaması")
     t1,t2,t3,t4,t5,t6=st.tabs(["🧩 Yapboz","⚡ Acil","🚢 Gemiler","👷 Personel & İzin","✦ Öneri","📊 Bilgi"])
     with t1: _sayfa_yapboz()
