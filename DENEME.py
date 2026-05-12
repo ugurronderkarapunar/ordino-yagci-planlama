@@ -1,5 +1,5 @@
 """
-Ordino Yağcı Planlaması — Pasif Butonu Hatası Düzeltildi (Tam Kod)
+Ordino Yağcı Planlaması — Öneri Al + Hızlı Ata (Tam Kod)
 Çalıştır: streamlit run app.py
 """
 from __future__ import annotations
@@ -410,7 +410,6 @@ def pdf_rapor_olustur(tip="aylik_ozet", ay=None, yil=None):
     return path
 
 def test_verisi_olustur():
-    """Kapsamlı test verileri (gemi-makine eşleştirmeli)."""
     for t in ["vardiya_plan","personel_sertifika","performans_gecmis","carkci","izin","personel","gemi_makine","makine_tipi","gemi"]:
         sql_run(f"DELETE FROM {t}")
     gemiler = [
@@ -530,6 +529,7 @@ def _sayfa_yapboz():
                         st.rerun()
                 else:
                     st.warning("Boş")
+                    # --- Manuel Seçim (eski yöntem) ---
                     uygun = ["Seçiniz..."]
                     hedef_gun = sec_tarih.weekday()
                     for p in sql_all("SELECT * FROM personel WHERE aktif=1 AND (vardiya_tipi='IZINCI' OR durum IN ('Gemide','İskelede'))"):
@@ -557,10 +557,8 @@ def _sayfa_yapboz():
                         bas_saat, bit_saat = VARDIYA_SAATLERI.get(p["vardiya_tipi"], ("08:00","08:00"))
                         if saat_cakismasi_var(p["id"], sec_tarih, bas_saat, bit_saat): continue
                         uygun.append(f"{p['ad']} {p['soyad']} ({p.get('durum','')})")
-                    if len(uygun)==1:
-                        st.caption("Uygun personel yok")
-                    else:
-                        sec = st.selectbox("Seç", uygun, key=f"s_{gemi['id']}_{mak['id']}_{sec_tarih}")
+                    if len(uygun) > 1:
+                        sec = st.selectbox("Manuel Seç", uygun, key=f"s_{gemi['id']}_{mak['id']}_{sec_tarih}")
                         if sec != "Seçiniz...":
                             pid_row = sql_one("SELECT id,vardiya_tipi FROM personel WHERE ad||' '||soyad=?",(sec.split(" (")[0],))
                             if pid_row:
@@ -578,8 +576,46 @@ def _sayfa_yapboz():
                                         st.rerun()
                                     except sqlite3.IntegrityError:
                                         st.error("Bu atama zaten mevcut!")
-                            else:
-                                st.error("Personel bulunamadı!")
+                    else:
+                        st.caption("Uygun personel yok")
+
+                    # --- YENİ: Öneri Al Butonu ---
+                    if st.button("🔍 Öneri Al (5)", key=f"onerbtn_{gemi['id']}_{mak['id']}_{sec_tarih}"):
+                        with st.spinner("Öneriler hesaplanıyor..."):
+                            oneriler = onerileri_hesapla(gemi["id"], mak["id"], sec_tarih, limit=5)
+                            st.session_state[f"oneriler_{gemi['id']}_{mak['id']}"] = oneriler
+                        st.rerun()
+
+                    # State'te öneriler varsa listele
+                    if f"oneriler_{gemi['id']}_{mak['id']}" in st.session_state and st.session_state[f"oneriler_{gemi['id']}_{mak['id']}"]:
+                        oneriler = st.session_state[f"oneriler_{gemi['id']}_{mak['id']}"]
+                        st.markdown("**Önerilen Personel:**")
+                        for o in oneriler:
+                            col_o1, col_o2 = st.columns([4,1])
+                            with col_o1:
+                                puan_str = f"{o['ad']} {o['soyad']} ({o['vardiya_tipi']}) - Puan: {o['puan']}"
+                                if o.get("ust_uste"): puan_str += " 🔄 DÜN ÇALIŞTI"
+                                if o.get("pespese"): puan_str += " 🔁 AYNI GEMİ"
+                                st.write(puan_str)
+                            with col_o2:
+                                if st.button("✅ Ata", key=f"ata_{gemi['id']}_{mak['id']}_{o['id']}"):
+                                    if o.get("zaten_atanmis"):
+                                        st.error("Zaten atanmış!")
+                                    else:
+                                        if iki_gun_ust_uste_mi(o["id"], sec_tarih):
+                                            st.warning("⚠️ Dün çalıştı, yine de atanıyor.")
+                                        bas_saat, bit_saat = VARDIYA_SAATLERI.get(o["vardiya_tipi"], ("08:00","08:00"))
+                                        try:
+                                            sql_run("INSERT INTO vardiya_plan(personel_id,gemi_id,makine_tipi_id,tarih,baslangic_saat,bitis_saat) VALUES(?,?,?,?,?,?)",
+                                                    (o["id"], gemi["id"], mak["id"], sec_tarih.isoformat(), bas_saat, bit_saat))
+                                            sql_run("INSERT INTO performans_gecmis(personel_id,tarih,puan,kaynak) VALUES(?,?,?,?)",
+                                                    (o["id"], sec_tarih.isoformat(), sql_one("SELECT is_kalitesi FROM personel WHERE id=?",(o["id"],))["is_kalitesi"] or 3, 'manuel'))
+                                            st.toast(f"{o['ad']} {o['soyad']} atandı!", icon="✅")
+                                            # State'i temizleyip yenile
+                                            del st.session_state[f"oneriler_{gemi['id']}_{mak['id']}"]
+                                            st.rerun()
+                                        except sqlite3.IntegrityError:
+                                            st.error("Bu atama zaten mevcut!")
         st.divider()
 
 def _sayfa_excel():
@@ -728,7 +764,6 @@ def _sayfa_personel():
                 q += " AND p.aktif=0"
             else:
                 q += " WHERE p.aktif=0"
-            # Pasif durumda parametre eklenmez, çünkü 0 doğrudan sorguda yazılı
     rows=sql_all(q+" ORDER BY p.id DESC",params)
     if arama:
         arama=arama.upper()
@@ -1235,7 +1270,7 @@ def main():
             st.session_state.tema_koyu = not koyu
             st.rerun()
         st.markdown("---")
-        st.caption("v5.3 · Pasif butonu düzeltildi")
+        st.caption("v5.4 · Öneri Al + Hızlı Ata")
     st.title("⚓ Ordino Yağcı Planlaması")
     t1,t2,t3,t4,t5,t6=st.tabs(["🧩 Yapboz","⚡ Acil","🚢 Gemiler","👷 Personel & İzin","✦ Öneri","📊 Bilgi"])
     with t1: _sayfa_yapboz()
