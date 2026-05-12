@@ -1,5 +1,5 @@
 """
-Ordino Yağcı Planlaması — Gemi Eklerken Makine Seçimi (Tam Kod)
+Ordino Yağcı Planlaması — Pasif Butonu Hatası Düzeltildi (Tam Kod)
 Çalıştır: streamlit run app.py
 """
 from __future__ import annotations
@@ -584,7 +584,6 @@ def _sayfa_yapboz():
 
 def _sayfa_excel():
     st.subheader("🚢 Gemiler & Makine")
-    # Gemi Ekle + Makine Seçimi
     with st.form("f_gemi"):
         st.write("##### Yeni Gemi Ekle")
         c1,c2,c3 = st.columns(3)
@@ -714,11 +713,22 @@ def _sayfa_personel():
     fa = st.session_state.get("fa", None)
     q="SELECT p.id,p.ad,p.soyad,g.ad AS gemi,p.gemi_id_list,p.makine_tipi_id_list,p.vardiya_tipi,p.vardiya_gunleri,p.gemiden_cekilme,p.carkci_ile_sorun,p.gemi_tutumu,p.izin_tercih_gunleri,p.izin_saat_araligi,p.is_kalitesi,p.performans_notu,p.durum,p.aktif FROM personel p LEFT JOIN gemi g ON g.id=p.gemi_id"
     params=()
-    if fv: q+=" WHERE p.vardiya_tipi=?"; params=(fv,)
+    if fv:
+        q += " WHERE p.vardiya_tipi=?"
+        params = (fv,)
     if fa:
-        if "WHERE" in q: q+=" AND p.aktif=?" if fa=="aktif" else " AND p.aktif=0"
-        else: q+=" WHERE p.aktif=?" if fa=="aktif" else " WHERE p.aktif=0"
-        params=params+(1,) if fa=="aktif" else params+(0,)
+        if fa == "aktif":
+            if "WHERE" in q:
+                q += " AND p.aktif=?"
+            else:
+                q += " WHERE p.aktif=?"
+            params = params + (1,)
+        else:   # pasif
+            if "WHERE" in q:
+                q += " AND p.aktif=0"
+            else:
+                q += " WHERE p.aktif=0"
+            # Pasif durumda parametre eklenmez, çünkü 0 doğrudan sorguda yazılı
     rows=sql_all(q+" ORDER BY p.id DESC",params)
     if arama:
         arama=arama.upper()
@@ -1225,7 +1235,7 @@ def main():
             st.session_state.tema_koyu = not koyu
             st.rerun()
         st.markdown("---")
-        st.caption("v5.2 · Gemi eklerken makine seçimi")
+        st.caption("v5.3 · Pasif butonu düzeltildi")
     st.title("⚓ Ordino Yağcı Planlaması")
     t1,t2,t3,t4,t5,t6=st.tabs(["🧩 Yapboz","⚡ Acil","🚢 Gemiler","👷 Personel & İzin","✦ Öneri","📊 Bilgi"])
     with t1: _sayfa_yapboz()
