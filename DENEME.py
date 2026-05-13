@@ -1,5 +1,6 @@
 """
-Ordino Yağcı Planlaması — Tam Sürüm, Eksiksiz, Buton Açıklamalı (v7.5)
+Ordino Yağcı Planlaması — Eksiksiz, Çalışan Tam Sürüm (v7.6)
+Her butonun altında açıklama, tüm fonksiyonlar mevcut.
 Çalıştır: streamlit run app.py
 """
 from __future__ import annotations
@@ -76,7 +77,6 @@ def audit_log(kullanici: str, islem: str, detay: str):
 
 # ---------- YARDIMCI FONKSİYONLAR ----------
 def btn(label, key, caption, **kwargs):
-    """Buton + altına açıklama. type='primary' varsayılan."""
     if 'type' not in kwargs:
         kwargs['type'] = 'primary'
     clicked = st.button(label, key=key, **kwargs)
@@ -93,6 +93,13 @@ def saat_cakisiyor(bas1: str, bit1: str, bas2: str, bit2: str) -> bool:
     if e1 <= b1: e1 += 24 * 60
     if e2 <= b2: e2 += 24 * 60
     return b1 < e2 and b2 < e1
+
+def saat_cakismasi_var(pid, tarih, bas_saat, bit_saat):
+    rows = sql_all("SELECT baslangic_saat, bitis_saat FROM vardiya_plan WHERE personel_id=? AND tarih=?", (pid, tarih.isoformat()))
+    for r in rows:
+        if saat_cakisiyor(bas_saat, bit_saat, r["baslangic_saat"], r["bitis_saat"]):
+            return True
+    return False
 
 def dinlenme_suresi_kontrol(pid: int, tarih: date, bas_saat: str) -> bool:
     ayar = st.session_state.get("ayarlar", DEFAULT_AYARLAR)
@@ -212,6 +219,43 @@ def veritabani_yedekle():
     yedek_yolu = YEDEK_DIR / f"ordino_yedek_{zaman}.db"
     shutil.copy2(DB_PATH, yedek_yolu)
     return yedek_yolu
+
+def _takvim_html(yil, ay, isaretli, koyu=True):
+    son_gun = _cal.monthrange(yil, ay)[1]
+    ilk = date(yil, ay, 1).weekday()
+    bugun = date.today()
+    bg = "#2b2b2b" if koyu else "#fff"
+    tc = "#f0f0f0" if koyu else "#1a1a1a"
+    css = f"<style>.cal{{font-family:system-ui;max-width:400px;margin:0 auto;background:{bg};border-radius:16px;padding:16px;}}.cal-title{{text-align:center;font-size:18px;font-weight:600;color:{tc};margin-bottom:12px;}}.cal-grid{{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;}}.cal-hdr{{text-align:center;font-size:12px;font-weight:600;color:#aaa;padding:6px 0;}}.cal-cell{{text-align:center;padding:10px 2px;border-radius:10px;font-size:14px;font-weight:500;}}.cal-empty{{background:transparent;}}.cal-normal{{background:#3a3a3a;color:#ddd;}}.cal-izin{{background:#f3831f;color:#fff;font-weight:600;}}.cal-bugun{{background:#2b2b2b;color:#f3831f;border:2px solid #f3831f;font-weight:700;}}</style>"
+    html = css + f'<div class="cal"><div class="cal-title">{AY_ADLARI[ay]} {yil}</div><div class="cal-grid">'
+    for g in ["Pzt","Sal","Çar","Per","Cum","Cmt","Paz"]: html += f'<div class="cal-hdr">{g}</div>'
+    for _ in range(ilk): html += '<div class="cal-cell cal-empty"></div>'
+    for n in range(1, son_gun+1):
+        d = date(yil, ay, n)
+        cls = "cal-izin" if d in isaretli else "cal-normal"
+        if d == bugun: cls += " cal-bugun"
+        html += f'<div class="cal-cell {cls}">{n}</div>'
+    html += "</div></div>"
+    return html
+
+def _json_gunleri_metne(v):
+    if not v: return "-"
+    try:
+        idx = json.loads(v)
+        if not isinstance(idx, list): return "-"
+        return ", ".join(GUNLER_TR[int(i)] for i in idx if 0 <= int(i) < 7) or "-"
+    except: return "-"
+
+def to_dict_rows(oneriler):
+    tum_mak = {r["id"]: r["ad"] for r in sql_all("SELECT id,ad FROM makine_tipi")}
+    rows = []
+    for o in oneriler:
+        mids = _id_listesi(o.get("makine_tipi_id_list"))
+        makine_str = ", ".join(tum_mak.get(m, str(m)) for m in mids) if mids else "Tüm Makineler"
+        ad = f"{o['ad']} {o['soyad']}"
+        rows.append({"id": o["id"], "ad_soyad": ad, "vardiya": o.get("vardiya_tipi","-"),
+                     "makine": makine_str, "puan": o["puan"], "zaten_atanmis": o.get("zaten_atanmis",False)})
+    return rows
 
 # ---------- ÖNERİ MOTORU ----------
 def onerileri_hesapla(gemi_id, makine_tipi_id, hedef_tarih, cikan_id=None, limit=5, esnek_cakisma=False):
@@ -618,6 +662,7 @@ def _sayfa_acil():
     mak = sql_all("SELECT id,ad FROM makine_tipi ORDER BY ad")
     bugun = date.today()
     izinli = bugun_izinli_ids()
+
     with st.expander("📅 Dün Kim Çalıştı?"):
         dun = (bugun - timedelta(days=1)).isoformat()
         col_d1, col_d2 = st.columns(2)
@@ -627,6 +672,7 @@ def _sayfa_acil():
             dun_atama = sql_one("SELECT p.ad||' '||p.soyad AS isim, v.baslangic_saat, v.bitis_saat FROM vardiya_plan v JOIN personel p ON v.personel_id=p.id WHERE v.gemi_id=? AND v.makine_tipi_id=? AND v.tarih=?", (dun_gemi, dun_mak, dun))
             if dun_atama: st.success(f"Dün: **{dun_atama['isim']}** ({dun_atama['baslangic_saat']} - {dun_atama['bitis_saat']})")
             else: st.info("Dün bu pozisyonda kimse çalışmamış.")
+
     with st.expander("🏝️ Personeli İskeleye Çıkar"):
         isk_personel = st.selectbox("Personel Seç", [f"{p['ad']} {p['soyad']} (ID:{p['id']})" for p in sql_all("SELECT id,ad,soyad FROM personel WHERE aktif=1 AND durum='Gemide' ORDER BY ad")], key="iskele_cikar")
         if btn("🔄 İskeleye Çıkar", key="btn_iskele", caption="Personeli 'İskelede' yapar"):
@@ -635,6 +681,7 @@ def _sayfa_acil():
                 sql_run("UPDATE personel SET durum='İskelede' WHERE id=?", (pid,))
                 audit_log("acil", "iskele", f"personel:{pid}")
                 st.toast("Personel iskeleye çıkarıldı!"); st.rerun()
+
     with st.expander("🚀 İskeledekileri Akıllı Dağıt"):
         if btn("🧠 Akıllı Dağıtım Başlat", key="btn_akilli_dagit", caption="İskelede/İZİNCİ personeli boş yerlere otomatik yerleştirir"):
             with st.spinner("Akıllı dağıtım yapılıyor..."):
@@ -663,6 +710,7 @@ def _sayfa_acil():
                             if atanan: break
                     if atanan > 0: st.toast(f"{atanan} personel dağıtıldı!"); st.rerun()
                     else: st.warning("Hiçbir personel yerleştirilemedi.")
+
     st.divider(); st.markdown("### 👤 Boştakiler")
     if btn("🔍 Listele", key="bbos", caption="Bugün hiç görevi olmayan personeli listeler"):
         bos = []
@@ -675,6 +723,7 @@ def _sayfa_acil():
                 bos.append(f"- **{p['ad']} {p['soyad']}** ({p['vardiya_tipi']}) → {gemi_adi} | Makine: {mak_ad} [{p.get('durum','')}]")
         if bos: st.success(f"{len(bos)} kişi boşta"); [st.write(b) for b in bos]
         else: st.info("Boşta kimse yok")
+
     st.divider(); st.markdown("### 🏝️ İskelede Bekleyenler")
     if btn("🔍 İskele Listesi", key="biskele", caption="'İskelede' durumundaki personeli gösterir"):
         isk = sql_all("SELECT ad,soyad,vardiya_tipi,gemi_id,makine_tipi_id_list FROM personel WHERE aktif=1 AND durum='İskelede'")
@@ -686,6 +735,7 @@ def _sayfa_acil():
                 mak_ad = ", ".join(next((m["ad"] for m in mak if m["id"]==mid), "") for mid in mids) if mids else "Tüm Makineler"
                 st.write(f"- **{p['ad']} {p['soyad']}** ({p['vardiya_tipi']}) → {gemi_adi} | Makine: {mak_ad}")
         else: st.info("İskelede bekleyen yok")
+
     st.divider(); st.markdown("### 🏗️ Tersaneye Uygunlar")
     if btn("🔍 Tersane Listesi", key="btersane", caption="Tersanedeki gemilere uygun personeli listeler"):
         ters_gem = [g for g in gem if g.get("konum")=="Tersane"]
@@ -702,6 +752,7 @@ def _sayfa_acil():
                             uygun.append(f"- {p['ad']} {p['soyad']} ({p['vardiya_tipi']}) → {g['ad']} / {next((ma['ad'] for ma in mak if ma['id']==m),'')} [{p.get('durum','')}]")
             if uygun: st.success(f"{len(uygun)} uygun:"); [st.write(u) for u in uygun[:20]]
             else: st.info("Uygun yok")
+
     st.divider(); st.markdown("### 📞 Anlık İzin Yerine")
     c1, c2 = st.columns(2)
     with c1: cik = st.selectbox("İzin İsteyen", [f"{p['ad']} {p['soyad']} (ID:{p['id']})" for p in sql_all("SELECT id,ad,soyad FROM personel WHERE aktif=1 ORDER BY ad")], key="acil_cik"); cik_id = int(cik.split("ID:")[1].replace(")","")) if cik else None
@@ -1272,7 +1323,7 @@ def _sayfa_bilgi():
     else:
         st.info("Bugün için planlanmış görev yok.")
 
-# ---------- ANA UYGULAMA ----------
+# ---------- MAIN ----------
 def main():
     st.set_page_config(page_title="Ordino", page_icon="⚓", layout="wide")
     if "ayarlar" not in st.session_state: st.session_state.ayarlar = DEFAULT_AYARLAR
@@ -1296,7 +1347,7 @@ def main():
             st.warning(f"{u['ad']} {u['soyad']} - {u['sertifika_adi']} ({u['makine']}) → {u['gecerlilik_tarihi']}")
         for p in bugun_plani_olustur():
             st.write(f"{'✅' if 'BOŞ' not in p['Personel'] else '🟡'} {p['Gemi']} – {p['Makine']}: **{p['Personel']}**")
-        st.caption("v7.5")
+        st.caption("v7.6")
 
     tabs = st.tabs(["🧩 Yapboz","⚡ Acil","🚢 Gemiler","👷 Personel & İzin","✦ Öneri","📊 Bilgi","⚙️ Ayarlar"])
     with tabs[0]: _sayfa_yapboz()
