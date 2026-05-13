@@ -1,5 +1,5 @@
 """
-Ordino Yağcı Planlaması — Tüm Butonlara İpucu Eklenmiş (v5.7 Tam)
+Ordino Yağcı Planlaması — Tüm Butonlara help Eklendi (v5.8)
 Çalıştır: streamlit run app.py
 """
 from __future__ import annotations
@@ -515,20 +515,17 @@ def bugun_plani_olustur():
 # ---------- SAYFALAR ----------
 def _sayfa_yapboz():
     st.subheader("🧩 İnteraktif Yapboz")
-    st.caption("Gemi‑makine pozisyonlarını görüp boşlukları tek tıkla doldurabilirsiniz.")
     c_tarih, c_btns = st.columns([3, 1])
     with c_tarih:
         sec_tarih = st.date_input("Tarih", value=date.today(), key="yapboz_tarih", format="DD.MM.YYYY")
     with c_btns:
         st.write("")
         cols_hafta = st.columns(2)
-        if cols_hafta[0].button("⬅️ Hafta"):
-            st.caption("Bir önceki haftaya gider.")
+        if cols_hafta[0].button("⬅️ Hafta", help="Bir önceki haftaya gider"):
             sec_tarih = st.session_state.yapboz_tarih - timedelta(days=7)
             st.session_state.yapboz_tarih = sec_tarih
             st.rerun()
-        if cols_hafta[1].button("Hafta ➡️"):
-            st.caption("Bir sonraki haftaya gider.")
+        if cols_hafta[1].button("Hafta ➡️", help="Bir sonraki haftaya gider"):
             sec_tarih = st.session_state.yapboz_tarih + timedelta(days=7)
             st.session_state.yapboz_tarih = sec_tarih
             st.rerun()
@@ -538,14 +535,12 @@ def _sayfa_yapboz():
     if not gemiler or not tum_makineler: st.warning("Gemi ve makine ekleyin."); return
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("🧹 Tüm Atamaları Temizle", key="temizle_yapboz", type="secondary"):
-            st.caption("Seçili tarihteki tüm vardiya atamalarını siler.")
+        if st.button("🧹 Tüm Atamaları Temizle", key="temizle_yapboz", type="secondary", help="Seçili tarihteki tüm vardiyaları siler"):
             sql_run("DELETE FROM vardiya_plan WHERE tarih=?", (sec_tarih.isoformat(),))
             st.toast("Tüm atamalar temizlendi!", icon="🧹")
             st.rerun()
     with col2:
-        if st.button("🤖 Hepsini Otomatik Doldur", key="otomatik_doldur_btn"):
-            st.caption("Sistemin önerdiği en uygun personelle tüm boşlukları doldurur.")
+        if st.button("🤖 Hepsini Otomatik Doldur", key="otomatik_doldur_btn", help="Sistemin önerdiği en uygun personelle boşlukları doldurur"):
             with st.spinner("Otomatik dolduruluyor..."):
                 for gemi in gemiler:
                     gemi_mak = sql_all("SELECT makine_tipi_id FROM gemi_makine WHERE gemi_id=?", (gemi["id"],))
@@ -582,14 +577,12 @@ def _sayfa_yapboz():
                         st.markdown(f"<div style='background:{renk};padding:8px;border-radius:8px;color:white;text-align:center;font-weight:bold;opacity:{opacity}'>{p['ad']} {p['soyad']}<br>({p['vardiya_tipi']}) {p.get('durum','')}<br>⭐{p['is_kalitesi']}</div>", unsafe_allow_html=True)
                     col_x, col_d = st.columns([1, 1])
                     with col_x:
-                        if st.button("❌ Çıkar", key=f"c_{gemi['id']}_{mak['id']}_{sec_tarih}"):
-                            st.caption("Bu personeli vardiyadan çıkarır, pozisyon boşalır.")
+                        if st.button("❌ Çıkar", key=f"c_{gemi['id']}_{mak['id']}_{sec_tarih}", help="Bu personeli vardiyadan çıkarır"):
                             sql_run("DELETE FROM vardiya_plan WHERE gemi_id=? AND makine_tipi_id=? AND tarih=?",(gemi["id"],mak["id"],sec_tarih.isoformat()))
                             st.toast("Personel çıkarıldı", icon="❌")
                             st.rerun()
                     with col_d:
-                        if st.button("🔄 Değiştir", key=f"degistir_{gemi['id']}_{mak['id']}_{sec_tarih}"):
-                            st.caption("Mevcut personeli çıkarır ve hemen yeni öneri listesi getirir.")
+                        if st.button("🔄 Değiştir", key=f"degistir_{gemi['id']}_{mak['id']}_{sec_tarih}", help="Çalışanı çıkarıp hemen yeni öneri getirir"):
                             sql_run("DELETE FROM vardiya_plan WHERE gemi_id=? AND makine_tipi_id=? AND tarih=?",(gemi["id"],mak["id"],sec_tarih.isoformat()))
                             oneriler = onerileri_hesapla(gemi["id"], mak["id"], sec_tarih, limit=5)
                             st.session_state[f"oneriler_{gemi['id']}_{mak['id']}"] = oneriler
@@ -663,8 +656,7 @@ def _sayfa_yapboz():
                                     except sqlite3.IntegrityError:
                                         st.error("Bu atama zaten mevcut!")
 
-                    if st.button("🔍 Öneri Al (5)", key=f"onerbtn_{gemi['id']}_{mak['id']}_{sec_tarih}"):
-                        st.caption("En uygun 5 personeli puana göre listeler.")
+                    if st.button("🔍 Öneri Al (5)", key=f"onerbtn_{gemi['id']}_{mak['id']}_{sec_tarih}", help="En uygun 5 personeli listeler"):
                         with st.spinner("Öneriler hesaplanıyor..."):
                             oneriler = onerileri_hesapla(gemi["id"], mak["id"], sec_tarih, limit=5)
                             st.session_state[f"oneriler_{gemi['id']}_{mak['id']}"] = oneriler
@@ -681,8 +673,7 @@ def _sayfa_yapboz():
                                 if o.get("pespese"): puan_str += " 🔁 AYNI GEMİ"
                                 st.write(puan_str)
                             with col_o2:
-                                if st.button("✅ Ata", key=f"ata_{gemi['id']}_{mak['id']}_{o['id']}"):
-                                    st.caption("Bu kişiyi seçili pozisyona atar.")
+                                if st.button("✅ Ata", key=f"ata_{gemi['id']}_{mak['id']}_{o['id']}", help="Bu kişiyi seçili pozisyona atar"):
                                     if o.get("zaten_atanmis"):
                                         st.error("Zaten atanmış!")
                                     else:
@@ -703,7 +694,6 @@ def _sayfa_yapboz():
 
 def _sayfa_excel():
     st.subheader("🚢 Gemiler & Makine")
-    st.caption("Gemileri ve içlerindeki makineleri yönetin.")
     with st.form("f_gemi"):
         st.write("##### Yeni Gemi Ekle")
         c1,c2,c3 = st.columns(3)
@@ -721,8 +711,7 @@ def _sayfa_excel():
         else:
             st.info("Önce makine tipi ekleyin.")
             sec_mak = []
-        if st.form_submit_button("➕ Gemi Ekle"):
-            st.caption("Gemi bilgilerini ve seçili makineleri kaydeder.")
+        if st.form_submit_button("➕ Gemi Ekle", help="Gemi bilgilerini ve seçili makineleri kaydeder"):
             if not gad:
                 st.error("Gemi adı zorunludur.")
             else:
@@ -742,7 +731,7 @@ def _sayfa_excel():
     with st.expander("➕ Makine Tipi Ekle"):
         with st.form("f_makine"):
             mad_val = st.text_input("Makine Tipi Adı")
-            if st.form_submit_button("➕ Makine Ekle"):
+            if st.form_submit_button("➕ Makine Ekle", help="Yeni makine tipi ekler"):
                 if not mad_val: st.error("Makine adı zorunlu")
                 else:
                     try: sql_run("INSERT INTO makine_tipi(ad) VALUES(?)",(mad_val.strip().upper(),))
@@ -754,7 +743,6 @@ def _sayfa_excel():
     st.dataframe(pd.DataFrame(g_rows), use_container_width=True, hide_index=True)
 
     with st.expander("🔗 Gemi-Makine Eşleştirme (Düzenle)"):
-        st.caption("Bir gemide hangi makinelerin olduğunu güncelleyin.")
         gemiler = sql_all("SELECT id,ad FROM gemi ORDER BY ad")
         makineler = sql_all("SELECT id,ad FROM makine_tipi ORDER BY ad")
         sec_gemi = st.selectbox("Gemi", [g["id"] for g in gemiler], format_func=lambda i: next((g["ad"] for g in gemiler if g["id"]==i), ""), key="gm_gemi")
@@ -762,8 +750,7 @@ def _sayfa_excel():
             mevcut_mak = [r["makine_tipi_id"] for r in sql_all("SELECT makine_tipi_id FROM gemi_makine WHERE gemi_id=?", (sec_gemi,))]
             sec_mak = st.multiselect("Gemideki Makineler", [m["id"] for m in makineler],
                                      default=mevcut_mak, format_func=lambda i: next((m["ad"] for m in makineler if m["id"]==i), ""), key="gm_mak")
-            if st.button("Güncelle", key="gm_guncelle"):
-                st.caption("Seçili makineleri gemiyle eşleştirir.")
+            if st.button("Güncelle", key="gm_guncelle", help="Seçili makineleri gemiyle eşleştirir"):
                 sql_run("DELETE FROM gemi_makine WHERE gemi_id=?", (sec_gemi,))
                 for mid in sec_mak:
                     sql_run("INSERT INTO gemi_makine(gemi_id, makine_tipi_id) VALUES(?,?)", (sec_gemi, mid))
@@ -792,19 +779,17 @@ def _sayfa_excel():
                 gs=st.selectbox("Gemi",list(gm.keys()),key="gds"); gr=gm[gs]
                 na=st.text_input("Ad",gr["ad"] or "",key="gna"); nk=st.text_input("Kod",gr["kod"] or "",key="gnk")
                 nkon=st.selectbox("Konum",GEMI_KONUMLARI,index=GEMI_KONUMLARI.index(gr["konum"]) if gr["konum"] in GEMI_KONUMLARI else 3,key="gnkon")
-                if st.button("Güncelle",key="bgd"):
-                    st.caption("Geminin adını, kodunu veya konumunu günceller.")
+                if st.button("Güncelle",key="bgd", help="Geminin adını, kodunu veya konumunu günceller"):
                     if not na: st.error("Ad boş")
                     else: sql_run("UPDATE gemi SET ad=?,kod=?,konum=? WHERE id=?",(na.strip().upper(),nk.strip().upper() if nk else None,nkon if nkon!="Belirtilmedi" else None,gr["id"])); st.toast("Gemi güncellendi!", icon="✏️"); st.rerun()
-                if st.button("Sil",key="bgs",type="secondary"):
-                    st.caption("Gemiyi tüm bağlantılarıyla siler (bağlı personel varsa izin vermez).")
+                if st.button("Sil",key="bgs",type="secondary", help="Gemiyi tüm bağlantılarıyla siler"):
                     personel_var = sql_one("SELECT COUNT(*) AS c FROM personel WHERE gemi_id=?",(gr["id"],))["c"]
                     makine_var = sql_one("SELECT COUNT(*) AS c FROM gemi_makine WHERE gemi_id=?",(gr["id"],))["c"]
                     if personel_var > 0:
                         st.error("Bağlı personel var, önce onları başka gemiye atayın veya silin.")
                     else:
                         if makine_var > 0:
-                            st.warning(f"Bu gemide {makine_var} makine tanımı silinecek. Onaylıyor musunuz?")
+                            st.warning(f"Bu gemide {makine_var} makine tanımı silinecek.")
                         sql_run("DELETE FROM gemi_makine WHERE gemi_id=?",(gr["id"],))
                         sql_run("DELETE FROM carkci WHERE gemi_id=?",(gr["id"],))
                         sql_run("DELETE FROM vardiya_plan WHERE gemi_id=?",(gr["id"],))
@@ -818,16 +803,15 @@ def _sayfa_excel():
                 mm={f"{r['ad']} (ID:{r['id']})":r for r in mr}
                 ms=st.selectbox("Makine",list(mm.keys()),key="mds"); mrow=mm[ms]
                 nm=st.text_input("Ad",mrow["ad"] or "",key="mna")
-                if st.button("Güncelle",key="bmd"):
+                if st.button("Güncelle",key="bmd", help="Makine adını günceller"):
                     if not nm: st.error("Ad boş")
                     else: sql_run("UPDATE makine_tipi SET ad=? WHERE id=?",(nm.strip().upper(),mrow["id"])); st.toast("Makine güncellendi!", icon="✏️"); st.rerun()
-                if st.button("Sil",key="bms",type="secondary"):
+                if st.button("Sil",key="bms",type="secondary", help="Makineyi siler (bağlı personel varsa izin vermez)"):
                     if mrow["c"]>0: st.error("Bağlı personel var")
                     else: sql_run("DELETE FROM gemi_makine WHERE makine_tipi_id=?",(mrow["id"],)); sql_run("DELETE FROM vardiya_plan WHERE makine_tipi_id=?",(mrow["id"],)); sql_run("DELETE FROM makine_tipi WHERE id=?",(mrow["id"],)); st.toast("Makine silindi!", icon="🗑️"); st.rerun()
 
 def _sayfa_personel():
     st.subheader("👷 Personel")
-    st.caption("Personel kayıtlarını görüntüleyin, filtreleyin, ekleyin veya düzenleyin.")
     gemiler=sql_all("SELECT id,ad FROM gemi ORDER BY ad")
     makineler=sql_all("SELECT id,ad FROM makine_tipi ORDER BY ad")
     arama = st.text_input("🔍 Personel Ara", key="personel_arama")
@@ -857,10 +841,9 @@ def _sayfa_personel():
         arama=arama.upper()
         rows=[r for r in rows if arama in f"{r['ad']} {r['soyad']} {r['vardiya_tipi']} {r.get('gemi','')} {r.get('durum','')}".upper()]
     with st.expander("🔄 Toplu Durum Değiştir"):
-        st.caption("Seçili personelin durumunu topluca güncelleyin.")
         sec_personel = st.multiselect("Personel seç", [f"{r['ad']} {r['soyad']} (ID:{r['id']})" for r in rows], key="toplu_durum_personel")
         yeni_durum = st.selectbox("Yeni Durum", PERSONEL_DURUM, key="toplu_yeni_durum")
-        if st.button("Durumları Güncelle", key="toplu_durum_btn"):
+        if st.button("Durumları Güncelle", key="toplu_durum_btn", help="Seçili personelin durumunu topluca günceller"):
             if sec_personel:
                 ids = [int(p.split("ID:")[1].replace(")","")) for p in sec_personel]
                 for pid in ids:
@@ -921,8 +904,7 @@ def _sayfa_personel():
             try:
                 df = pd.read_excel(personel_excel)
                 st.dataframe(df.head(), use_container_width=True)
-                if st.button("📤 Ekle", key="btn_toplu_personel"):
-                    st.caption("Excel'deki tüm satırları personel olarak kaydeder.")
+                if st.button("📤 Ekle", key="btn_toplu_personel", help="Excel'deki tüm satırları personel olarak kaydeder"):
                     eklenen = 0
                     for _, row in df.iterrows():
                         ad = str(row.get('Ad', '')).strip().upper()
@@ -982,8 +964,7 @@ def _sayfa_personel():
         gemi_tut=c4.selectbox("Gemi İçi Tutum",["Mükemmel","İyi","Orta","Gelişmeli"],key="p_tut")
         ib=c3.time_input("İzin Baş.",value=None,key="p_ib"); it=c4.time_input("İzin Bit.",value=None,key="p_it")
         pn=st.text_area("Performans Notu (NLP analizine tabidir)",key="p_not")
-        if st.button("Kaydet",key="btn_pk"):
-            st.caption("Yeni personeli sisteme ekler.")
+        if st.button("Kaydet",key="btn_pk", help="Yeni personeli sisteme ekler"):
             if not ad or not soyad: st.error("Ad soyad zorunlu")
             else:
                 try:
@@ -1013,8 +994,7 @@ def _sayfa_personel():
         ydurum=st.selectbox("Durum",PERSONEL_DURUM,index=PERSONEL_DURUM.index(mev["durum"]) if mev.get("durum") in PERSONEL_DURUM else 0,key="pd_durum")
         ypn = st.text_area("Performans Notu (NLP)", value=mev.get("performans_notu") or "", key="pd_pn")
         c1,c2=st.columns(2)
-        if c1.button("Güncelle",key="bpgu"):
-            st.caption("Personel bilgilerini günceller.")
+        if c1.button("Güncelle",key="bpgu", help="Personel bilgilerini günceller"):
             try:
                 yeni_gemi_id = ygem[0] if ygem else None
                 ilk_mak = int(ymak[0]) if ymak else None
@@ -1023,8 +1003,7 @@ def _sayfa_personel():
                 st.toast("Personel güncellendi!", icon="✏️")
                 st.rerun()
             except Exception as e: st.error(f"Hata: {e}")
-        if c2.button("Sil",key="bps",type="secondary"):
-            st.caption("Personeli sistemden tamamen siler.")
+        if c2.button("Sil",key="bps",type="secondary", help="Personeli sistemden tamamen siler"):
             for t in ["izin","vardiya_plan","personel_sertifika","performans_gecmis"]: sql_run(f"DELETE FROM {t} WHERE personel_id=?",(pid,))
             sql_run("DELETE FROM personel WHERE id=?",(pid,))
             st.toast("Personel silindi!", icon="🗑️")
@@ -1035,18 +1014,15 @@ def _sayfa_personel():
         with st.form("sert_ekle",clear_on_submit=True):
             sm=st.selectbox("Makine",[r["id"] for r in makineler],format_func=lambda i:next(r["ad"] for r in makineler if r["id"]==i),key="sm")
             sa=st.text_input("Sertifika Adı",key="sa"); sg=st.date_input("Geçerlilik",value=None,key="sg",format="DD.MM.YYYY"); sn=st.text_input("Not",key="sn")
-            if st.form_submit_button("Ekle"):
-                st.caption("Yeni sertifika ekler.")
+            if st.form_submit_button("Ekle", help="Yeni sertifika ekler"):
                 sql_run("INSERT INTO personel_sertifika VALUES(NULL,?,?,?,?,?)",(pid,sm,sa or None,sg.isoformat() if sg else None,sn or None)); st.toast("Sertifika eklendi!", icon="🎓"); st.rerun()
         if sert:
             sil_s=st.selectbox("Silinecek",[f"{s['sertifika_adi'] or 'Sertifika'} (ID:{s['id']})" for s in sert],key="sils")
-            if st.button("Sertifika Sil",key="bss"):
-                st.caption("Seçili sertifikayı siler.")
+            if st.button("Sertifika Sil",key="bss", help="Seçili sertifikayı siler"):
                 sid=int(sil_s.split("ID:")[1].replace(")","")); sql_run("DELETE FROM personel_sertifika WHERE id=?",(sid,)); st.toast("Sertifika silindi!", icon="🗑️"); st.rerun()
 
 def _sayfa_izin():
     st.subheader("📅 İzin")
-    st.caption("Personel izinlerini yönetin. Çakışan görev varsa uyarı alırsınız.")
     pl=sql_all("SELECT id,ad,soyad,vardiya_gunleri FROM personel WHERE aktif=1 ORDER BY ad")
     if not pl: st.info("Personel yok"); return
     with st.expander("📤 Excel'den Toplu İzin Ekle"):
@@ -1056,8 +1032,7 @@ def _sayfa_izin():
             try:
                 df = pd.read_excel(izin_excel)
                 st.dataframe(df.head(), use_container_width=True)
-                if st.button("📤 Ekle", key="btn_toplu_izin"):
-                    st.caption("Excel'deki izinleri topluca sisteme aktarır.")
+                if st.button("📤 Ekle", key="btn_toplu_izin", help="Excel'deki izinleri topluca sisteme aktarır"):
                     eklenen = 0
                     for _, row in df.iterrows():
                         ad = str(row.get('Ad', '')).strip().upper()
@@ -1089,8 +1064,7 @@ def _sayfa_izin():
         if bit>=bas: gun=gun_sayisi(bas,bit); st.info(f"📅 {gun} gün")
         else: st.error("Tarih hatası"); gun=0
         notlar=st.text_area("Not",key="izn",height=80)
-        if st.button("✅ Kaydet",key="biz"):
-            st.caption("İzni kaydeder. Görev çakışırsa uyarı gösterir.")
+        if st.button("✅ Kaydet",key="biz", help="İzni kaydeder. Görev çakışırsa uyarı gösterir"):
             if gun<=0: st.error("Geçersiz aralık")
             else:
                 calisan_gorevler = sql_all("SELECT DISTINCT v.tarih, g.ad || ' - ' || m.ad AS pozisyon "
@@ -1124,20 +1098,17 @@ def _sayfa_izin():
             c1,c2,c3=st.columns([4,2,1])
             c1.markdown(f"**{iz['ad']} {iz['soyad']}**  \n📅 {iz['baslangic']} → {iz['bitis']} · {iz['gun_sayisi']} gün")
             c2.markdown("🟠 Aktif" if iz["baslangic"]<=date.today().isoformat()<=iz["bitis"] else "✅ Tamamlandı")
-            if c3.button("🗑️",key=f"izsil_{iz['id']}"):
-                st.caption("Bu izin kaydını siler.")
+            if c3.button("🗑️",key=f"izsil_{iz['id']}", help="Bu izin kaydını siler"):
                 sql_run("DELETE FROM izin WHERE id=?",(iz["id"],)); st.toast("İzin silindi!", icon="🗑️"); st.rerun()
 
 def _sayfa_carkci():
     st.subheader("⚙️ Çarkçı")
-    st.caption("Çarkçı başı notları ve sorunlu personel kaydı oluşturun.")
     gem=sql_all("SELECT id,ad FROM gemi ORDER BY ad"); yag=sql_all("SELECT id,ad,soyad FROM personel WHERE aktif=1 ORDER BY ad")
     if not gem or not yag: st.warning("Gemi/personel yok"); return
     c1,c2=st.columns(2)
     with c1: ad=c1.text_input("Ad",key="cka"); soyad=c2.text_input("Soyad",key="cks"); gid=c1.selectbox("Gemi",[r["id"] for r in gem],format_func=lambda i:next(r["ad"] for r in gem if r["id"]==i),key="ckg"); cvt=c1.selectbox("Vardiya",VARDIYA_TIPLERI,key="ckv"); cg=c1.multiselect("Günler",GUNLER_TR,key="ckgun")
     with c2: yop=[("(Seçilmedi)",None)]+[(f"{p['ad']} {p['soyad']}",p["id"]) for p in yag]; ys=c2.selectbox("Sorunlu Yağcı",yop,format_func=lambda x:x[0],key="cky"); sorun=c2.text_area("Sorun / Açıklama (NLP)",key="ckso"); vn=c2.text_input("Vardiya Notu",key="ckvn"); pk=c2.slider("Puan Kırma",0,5,0,key="ckp")
-    if st.button("Oluştur",key="bck"):
-        st.caption("Çarkçı kaydını sisteme ekler ve varsa personel puanını düşürür.")
+    if st.button("Oluştur",key="bck", help="Çarkçı kaydını kaydeder ve varsa personel puanını düşürür"):
         if not ad or not soyad: st.error("Ad soyad zorunlu")
         else:
             gun_j=json.dumps([GUNLER_TR.index(g) for g in cg]) if cg else "[]"; pid_p=ys[1]
@@ -1155,7 +1126,6 @@ def _sayfa_carkci():
 
 def _sayfa_acil():
     st.subheader("⚡ Acil Panel")
-    st.caption("Anlık boşlukları görün, iskeledekileri dağıtın veya hızlıca öneri alın.")
     gem=sql_all("SELECT id,ad,konum FROM gemi ORDER BY ad"); mak=sql_all("SELECT id,ad FROM makine_tipi ORDER BY ad")
     bugun=date.today(); izinli=bugun_izinli_ids()
     with st.expander("📅 Dün Kim Çalıştı?"):
@@ -1163,19 +1133,16 @@ def _sayfa_acil():
         col_d1, col_d2 = st.columns(2)
         with col_d1: dun_gemi = st.selectbox("Gemi", [g["id"] for g in gem], format_func=lambda i: next(g["ad"] for g in gem if g["id"]==i), key="dun_gemi")
         with col_d2: dun_mak = st.selectbox("Makine", [m["id"] for m in mak], format_func=lambda i: next(m["ad"] for m in mak if m["id"]==i), key="dun_mak")
-        if st.button("🔍 Sorgula", key="dun_sorgu"):
-            st.caption("Seçili gemi ve makine için dünkü personeli gösterir.")
+        if st.button("🔍 Sorgula", key="dun_sorgu", help="Dünkü pozisyonun sahibini gösterir"):
             dun_atama = sql_one("SELECT p.ad||' '||p.soyad AS isim, v.baslangic_saat, v.bitis_saat FROM vardiya_plan v JOIN personel p ON v.personel_id=p.id WHERE v.gemi_id=? AND v.makine_tipi_id=? AND v.tarih=?", (dun_gemi, dun_mak, dun))
             if dun_atama: st.success(f"Dün: **{dun_atama['isim']}** ({dun_atama['baslangic_saat']} - {dun_atama['bitis_saat']})")
             else: st.info("Dün bu pozisyonda kimse çalışmamış.")
     with st.expander("🏝️ Personeli İskeleye Çıkar"):
         isk_personel = st.selectbox("Personel Seç", [f"{p['ad']} {p['soyad']} (ID:{p['id']})" for p in sql_all("SELECT id,ad,soyad FROM personel WHERE aktif=1 AND durum='Gemide' ORDER BY ad")], key="iskele_cikar")
-        if st.button("🔄 İskeleye Çıkar", key="btn_iskele"):
-            st.caption("Seçili personeli 'İskelede' durumuna alır.")
+        if st.button("🔄 İskeleye Çıkar", key="btn_iskele", help="Personeli 'İskelede' yapar"):
             if isk_personel: pid = int(isk_personel.split("ID:")[1].replace(")","")); sql_run("UPDATE personel SET durum='İskelede' WHERE id=?", (pid,)); st.toast("Personel iskeleye çıkarıldı!", icon="🏝️"); st.rerun()
     with st.expander("🚀 İskeledekileri Akıllı Dağıt"):
-        if st.button("🧠 Akıllı Dağıtım Başlat", key="btn_akilli_dagit"):
-            st.caption("İZİNCİ veya İskelede durumundaki personeli boş pozisyonlara otomatik yerleştirir.")
+        if st.button("🧠 Akıllı Dağıtım Başlat", key="btn_akilli_dagit", help="İskelede/İZİNCİ personeli boş yerlere otomatik yerleştirir"):
             with st.spinner("Akıllı dağıtım yapılıyor..."):
                 iskeledekiler = sql_all("SELECT * FROM personel WHERE aktif=1 AND (vardiya_tipi='IZINCI' OR durum='İskelede')")
                 if not iskeledekiler: st.warning("Dağıtılacak uygun personel yok.")
@@ -1203,8 +1170,7 @@ def _sayfa_acil():
                     if atanan > 0: st.toast(f"{atanan} personel dağıtıldı!", icon="🚀"); st.rerun()
                     else: st.warning("Hiçbir personel yerleştirilemedi.")
     st.divider(); st.markdown("### 👤 Boştakiler")
-    if st.button("🔍 Listele",key="bbos"):
-        st.caption("Bugün için hiçbir görevi olmayan aktif personeli listeler.")
+    if st.button("🔍 Listele",key="bbos", help="Bugün hiç görevi olmayan personeli listeler"):
         bos=[]
         for p in sql_all("SELECT * FROM personel WHERE aktif=1 AND (vardiya_tipi='IZINCI' OR durum IN ('Gemide','İskelede'))"):
             if p["id"] in izinli: continue
@@ -1216,8 +1182,7 @@ def _sayfa_acil():
         if bos: st.success(f"{len(bos)} kişi boşta"); [st.write(b) for b in bos]
         else: st.info("Boşta kimse yok")
     st.divider(); st.markdown("### 🏝️ İskelede Bekleyenler")
-    if st.button("🔍 İskele Listesi",key="biskele"):
-        st.caption("Durumu 'İskelede' olan personeli gösterir.")
+    if st.button("🔍 İskele Listesi",key="biskele", help="'İskelede' durumundaki personeli gösterir"):
         isk=sql_all("SELECT ad,soyad,vardiya_tipi,gemi_id,makine_tipi_id_list FROM personel WHERE aktif=1 AND durum='İskelede'")
         if isk:
             st.success(f"{len(isk)} kişi iskelede:")
@@ -1228,8 +1193,7 @@ def _sayfa_acil():
                 st.write(f"- **{p['ad']} {p['soyad']}** ({p['vardiya_tipi']}) → {gemi_adi} | Makine: {mak_ad}")
         else: st.info("İskelede bekleyen yok")
     st.divider(); st.markdown("### 🏗️ Tersaneye Uygunlar")
-    if st.button("🔍 Tersane Listesi",key="btersane"):
-        st.caption("Konumu 'Tersane' olan gemilere uygun personeli sıralar.")
+    if st.button("🔍 Tersane Listesi",key="btersane", help="Tersanedeki gemilere uygun personeli listeler"):
         ters_gem=[g for g in gem if g.get("konum")=="Tersane"]
         if not ters_gem: st.warning("Tersanede gemi yok")
         else:
@@ -1255,8 +1219,7 @@ def _sayfa_acil():
             st.warning("Seçili gemide makine yok")
             return
         hm = st.selectbox("Makine", [m["id"] for m in hm_secenek], format_func=lambda i: next((m["ad"] for m in hm_secenek if m["id"]==i), ""), key="acil_mak")
-    if st.button("🚨 Öner (5)",key="bacil"):
-        st.caption("Bir personel izne ayrıldığında yerine en uygun 5 adayı getirir.")
+    if st.button("🚨 Öner (5)",key="bacil", help="İzin isteyenin yerine en uygun 5 adayı getirir"):
         on=onerileri_hesapla(hg,hm,bugun,cikan_id=cik_id,limit=5)
         if not on: st.warning("Uygun yok")
         else:
@@ -1271,7 +1234,6 @@ def _sayfa_acil():
 
 def _sayfa_oneri():
     st.subheader("✦ Öneri & Plan")
-    st.caption("Tarih aralığına göre toplu planlama yapın veya tek seferlik en iyi adayı bulun.")
     gem=sql_all("SELECT id,ad FROM gemi ORDER BY ad"); mak=sql_all("SELECT id,ad FROM makine_tipi ORDER BY ad")
     if not gem or not mak: st.warning("Gemi/makine yok"); return
     izinli=bugun_izinli_ids()
@@ -1292,8 +1254,7 @@ def _sayfa_oneri():
             sm = []
         ba=st.date_input("Başlangıç",date.today(),key="tpb",format="DD.MM.YYYY"); bi=st.date_input("Bitiş",date.today()+timedelta(days=7),key="tpi",format="DD.MM.YYYY")
         gn=st.multiselect("Günler",GUNLER_TR,default=["Pazartesi","Salı","Çarşamba","Perşembe","Cuma"],key="tpgun"); gi=[GUNLER_TR.index(g) for g in gn]
-        if st.button("🚀 Oluştur",key="btp"):
-            st.caption("Seçili aralıktaki tüm boş pozisyonları en adil şekilde doldurur.")
+        if st.button("🚀 Oluştur",key="btp", help="Seçili aralıktaki tüm boş pozisyonları adilce doldurur"):
             if not sg or not sm: st.error("Seçim yapın")
             else:
                 with st.spinner("Toplu planlama yapılıyor..."):
@@ -1321,8 +1282,7 @@ def _sayfa_oneri():
         mevcut_sil=sql_one("SELECT p.ad||' '||p.soyad AS isim, v.baslangic_saat, v.bitis_saat FROM vardiya_plan v JOIN personel p ON v.personel_id=p.id WHERE v.gemi_id=? AND v.makine_tipi_id=? AND v.tarih=?",(sil_gemi,sil_mak,sil_tarih.isoformat()))
         if mevcut_sil:
             st.warning(f"Mevcut atama: **{mevcut_sil['isim']}** ({mevcut_sil['baslangic_saat']} - {mevcut_sil['bitis_saat']})")
-            if st.button("Atamayı Sil",key="sil_ata"):
-                st.caption("Belirtilen tarihteki atamayı kaldırır.")
+            if st.button("Atamayı Sil",key="sil_ata", help="Belirtilen atamayı kaldırır"):
                 sql_run("DELETE FROM vardiya_plan WHERE gemi_id=? AND makine_tipi_id=? AND tarih=?",(sil_gemi,sil_mak,sil_tarih.isoformat())); st.toast("Atama silindi!", icon="🗑️"); st.rerun()
         else: st.info("Bu tarihte atama yok")
     st.divider(); st.subheader("Tek Seferlik Öneri")
@@ -1339,8 +1299,7 @@ def _sayfa_oneri():
     cik_opts=[("(Yok)",None)]+[(f"{p['ad']} {p['soyad']}{' 🟠' if p['id'] in izinli else ''}",p["id"]) for p in sorted(gemi_p,key=lambda x:(0 if x['id'] in izinli else 1,x['ad']))]
     def_idx=next((i for i,(_,pid) in enumerate(cik_opts) if pid in izinli),0)
     cik_sec=st.selectbox("Çıkan",cik_opts,format_func=lambda x:x[0],index=def_idx,key="oncik"); cik_id=cik_sec[1]
-    if st.button("🔍 Öner",key="bon"):
-        st.caption("Seçili pozisyon için en uygun 5 adayı listeler.")
+    if st.button("🔍 Öner",key="bon", help="Seçili pozisyon için en uygun 5 adayı listeler"):
         out=onerileri_hesapla(gid,mid,ht,cik_id,5,esnek); rows=to_dict_rows(out)
         if not rows: st.warning("Uygun yok")
         elif any(r.get("zaten_atanmis") for r in rows): st.success("Zaten atanmış")
@@ -1353,8 +1312,7 @@ def _sayfa_oneri():
     col_saat1, col_saat2 = st.columns(2)
     with col_saat1: bas_saat = st.text_input("Başlangıç Saati", value=varsayilan_bas, key="bas_saat")
     with col_saat2: bit_saat = st.text_input("Bitiş Saati", value=varsayilan_bit, key="bit_saat")
-    if st.button("✅ Kaydet",key="bvk"):
-        st.caption("Seçili personeli elle atar.")
+    if st.button("✅ Kaydet",key="bvk", help="Seçili personeli elle atar"):
         p_sec=sql_one("SELECT id,vardiya_tipi FROM personel WHERE ad||' '||soyad=?",(ps,))
         if p_sec:
             if not esnek and baska_gemide_mi(p_sec["id"],ht,gid): st.error("Başka gemide çalışıyor")
@@ -1371,7 +1329,6 @@ def _sayfa_oneri():
 
 def _sayfa_bilgi():
     st.subheader("📊 Bilgi & Rapor")
-    st.caption("Özet bilgiler, PDF çıktıları ve günlük plan kopyalama.")
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("👥 Toplam Personel", sql_one("SELECT COUNT(*) AS c FROM personel WHERE aktif=1")["c"])
@@ -1383,29 +1340,25 @@ def _sayfa_bilgi():
     st.divider()
     c1,c2,c3=st.columns(3)
     with c1:
-        if st.button("💾 Yedekle",key="byedek"):
-            st.caption("Veritabanının yedeğini alır.")
+        if st.button("💾 Yedekle",key="byedek", help="Veritabanının yedeğini alır"):
             st.toast(f"Yedek: {veritabani_yedekle().name}", icon="💾")
     with c2:
-        if st.button("🧪 Test Verisi",key="btest"):
-            st.caption("Örnek gemi, makine, personel ve izin kayıtları oluşturur.")
+        if st.button("🧪 Test Verisi",key="btest", help="Örnek gemi, makine, personel ve izin kayıtları oluşturur"):
             test_verisi_olustur()
     with c3:
-        st.download_button("📥 DB İndir",open(DB_PATH,"rb"),file_name=f"ordino_{date.today().isoformat()}.db")
+        st.download_button("📥 DB İndir",open(DB_PATH,"rb"),file_name=f"ordino_{date.today().isoformat()}.db", help="Veritabanı dosyasını bilgisayara indirir")
     st.divider()
     st.subheader("📄 PDF")
     cp1,cp2=st.columns(2)
     with cp1:
-        if st.button("Aylık Özet PDF",key="bpdfa"):
-            st.caption("İçinde bulunulan ayın personel çalışma/izin özetini PDF yapar.")
+        if st.button("Aylık Özet PDF",key="bpdfa", help="Aylık personel özeti PDF'i oluşturur"):
             p=pdf_rapor_olustur("aylik_ozet"); st.download_button("İndir",open(p,"rb"),file_name=p.name)
     with cp2:
         st.write("Vardiya Plan PDF (Tarih Aralıklı)")
         col_p1, col_p2 = st.columns(2)
         p_bas = col_p1.date_input("Başlangıç", date.today(), key="pdf_bas")
         p_bit = col_p2.date_input("Bitiş", date.today()+timedelta(days=7), key="pdf_bit")
-        if st.button("PDF Oluştur", key="pdf_aralik"):
-            st.caption("Seçili tarih aralığındaki vardiya planını PDF olarak indirir.")
+        if st.button("PDF Oluştur", key="pdf_aralik", help="Seçili aralıktaki vardiya planını PDF yapar"):
             p = pdf_rapor_olustur("vardiya_plani", baslangic=p_bas, bitis=p_bit)
             st.download_button("İndir", open(p,"rb"), file_name=p.name)
     st.divider()
@@ -1440,7 +1393,6 @@ def main():
         st.markdown("---")
 
         with st.expander("📜 Sertifika Uyarıları"):
-            st.caption("30 gün içinde bitecek sertifikaları gösterir.")
             uyarilar = sertifika_uyarilari_al()
             if uyarilar:
                 for u in uyarilar:
@@ -1458,12 +1410,11 @@ def main():
                 st.info("Planlanmış görev yok.")
 
         st.markdown("---")
-        if st.button("🌓 Tema Değiştir", key="tema_sidebar"):
-            st.caption("Açık/koyu tema arasında geçiş yapar.")
+        if st.button("🌓 Tema Değiştir", key="tema_sidebar", help="Açık/koyu tema arasında geçiş yapar"):
             st.session_state.tema_koyu = not koyu
             st.rerun()
         st.markdown("---")
-        st.caption("v5.7 · Tüm butonlara ipucu eklendi")
+        st.caption("v5.8 · Buton yardımları eklendi")
 
     st.title("⚓ Ordino Yağcı Planlaması")
     t1,t2,t3,t4,t5,t6=st.tabs(["🧩 Yapboz","⚡ Acil","🚢 Gemiler","👷 Personel & İzin","✦ Öneri","📊 Bilgi"])
