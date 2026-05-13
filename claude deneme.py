@@ -1652,32 +1652,70 @@ def _sayfa_oneri():
 
 def _sayfa_carkci():
     st.subheader("⚙️ Çarkçı")
-    gem = sql_all("SELECT id,ad FROM gemi ORDER BY ad"); yag = sql_all("SELECT id,ad,soyad FROM personel WHERE aktif=1 ORDER BY ad")
-    if not gem or not yag: st.warning("Gemi/personel yok"); return
-    c1,c2 = st.columns(2)
+    gem = sql_all("SELECT id,ad FROM gemi ORDER BY ad")
+    yag = sql_all("SELECT id,ad,soyad FROM personel WHERE aktif=1 ORDER BY ad")
+    if not gem or not yag:
+        st.warning("Gemi/personel yok")
+        return
+
+    c1, c2 = st.columns(2)
     with c1:
-        ad = st.text_input("Ad",key="cka"); soyad = st.text_input("Soyad",key="cks")
-        gid = st.selectbox("Gemi",[r["id"] for r in gem],format_func=lambda i:next(r["ad"] for r in gem if r["id"]==i),key="ckg")
-        cvt = st.selectbox("Vardiya",VARDIYA_TIPLERI,key="ckv"); cg = st.multiselect("Günler",GUNLER_TR,key="ckgun")
+        ad = st.text_input("Ad", key="cka")
+        soyad = st.text_input("Soyad", key="cks")
+        gid = st.selectbox("Gemi", [r["id"] for r in gem],
+                           format_func=lambda i: next(r["ad"] for r in gem if r["id"] == i),
+                           key="ckg")
+        cvt = st.selectbox("Vardiya", VARDIYA_TIPLERI, key="ckv")
+        cg = st.multiselect("Günler", GUNLER_TR, key="ckgun")
     with c2:
-        yop = [("(Seçilmedi)",None)]+[(f"{p['ad']} {p['soyad']}",p["id"]) for p in yag]
-        ys  = st.selectbox("Sorunlu Yağcı",yop,format_func=lambda x:x[0],key="cky")
-        sorun = st.text_area("Sorun",key="ckso"); vn = st.text_input("Vardiya Notu",key="ckvn"); pk = st.slider("Puan Kırma",0,5,0,key="ckp")
-    if btn("Oluştur",key="bck",caption="Çarkçı kaydı oluşturur"):
-        if not ad or not soyad: st.error("Ad soyad zorunlu")
+        yop = [("(Seçilmedi)", None)] + [(f"{p['ad']} {p['soyad']}", p["id"]) for p in yag]
+        ys = st.selectbox("Sorunlu Yağcı", yop, format_func=lambda x: x[0], key="cky")
+        sorun = st.text_area("Sorun / Açıklama", key="ckso")
+        vn = st.text_input("Vardiya Notu", key="ckvn")
+        pk = st.slider("Puan Kırma", 0, 5, 0, key="ckp")
+
+    if btn("Oluştur", key="bck", caption="Çarkçı kaydı oluşturur"):
+        if not ad or not soyad:
+            st.error("Ad soyad zorunlu")
         else:
-            gun_j = json.dumps([GUNLER_TR.index(g) for g in cg]) if cg else "[]"; pid_p = ys[1]
-            sql_run("INSERT INTO carkci VALUES(NULL,?,?,?,?,?,?,?,?,?)",(ad.strip().upper(),soyad.strip().upper(),gid,pid_p,sorun,vn,cvt,gun_j,pk))
-            if pid_p:
-                mev = sql_one("SELECT is_kalitesi FROM personel WHERE id=?",(pid_p,))
-                if mev:
-                    yeni = max(1,(mev["is_kalitesi"] or 3)-pk)
-                    sql_run("UPDATE personel SET is_kalitesi=?,carkci_ile_sorun=1,carkci_sorun_notu=? WHERE id=?",(yeni,sorun.strip() or None,pid_p))
-            st.toast("Kayıt oluşturuldu!"); st.rerun()
-    cr = sql_all("SELECT c.id,c.ad,c.soyad,g.ad AS gemi,c.carkci_vardiya,c.vardiya_gunleri,p.ad||' '||p.soyad AS yagci,c.sorun_metni,c.puan_kirma FROM carkci c LEFT JOIN gemi g ON g.id=c.gemi_id LEFT JOIN personel p ON p.id=c.problemli_yagci_id ORDER BY c.id DESC LIMIT 30")
+            gun_j = json.dumps([GUNLER_TR.index(g) for g in cg]) if cg else "[]"
+            pid_p = ys[1]  # problemli yağcı id
+            try:
+                sql_run(
+                    "INSERT INTO carkci(ad,soyad,gemi_id,problemli_yagci_id,sorun_metni,vardiya_notu,carkci_vardiya,vardiya_gunleri,puan_kirma) VALUES(?,?,?,?,?,?,?,?,?)",
+                    (ad.strip().upper(), soyad.strip().upper(), gid, pid_p, sorun, vn, cvt, gun_j, pk)
+                )
+                if pid_p:
+                    mev = sql_one("SELECT is_kalitesi FROM personel WHERE id=?", (pid_p,))
+                    if mev:
+                        yeni = max(1, (mev["is_kalitesi"] or 3) - pk)
+                        sql_run(
+                            "UPDATE personel SET is_kalitesi=?, carkci_ile_sorun=1, carkci_sorun_notu=? WHERE id=?",
+                            (yeni, sorun.strip() or None, pid_p)
+                        )
+                audit_log("kullanici", "carkci_ekle", f"{ad} {soyad}")
+                st.toast("Çarkçı kaydı oluşturuldu!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Çarkçı eklenirken hata oluştu: {e}")
+
+    st.divider()
+    cr = sql_all(
+        """SELECT c.id, c.ad, c.soyad, g.ad AS gemi, c.carkci_vardiya,
+                  c.vardiya_gunleri, p.ad||' '||p.soyad AS yagci,
+                  c.sorun_metni, c.puan_kirma
+           FROM carkci c
+           LEFT JOIN gemi g ON g.id = c.gemi_id
+           LEFT JOIN personel p ON p.id = c.problemli_yagci_id
+           ORDER BY c.id DESC
+           LIMIT 30"""
+    )
     if cr:
-        for r in cr: r["vardiya_gunleri"] = _json_gunleri_metne(r.get("vardiya_gunleri"))
-        st.dataframe(pd.DataFrame(cr),use_container_width=True)
+        for r in cr:
+            r["vardiya_gunleri"] = _json_gunleri_metne(r.get("vardiya_gunleri"))
+        st.dataframe(pd.DataFrame(cr), use_container_width=True)
+    else:
+        st.info("Henüz çarkçı kaydı yok.")
 
 def _sayfa_bilgi():
     st.subheader("📊 Bilgi & Rapor")
