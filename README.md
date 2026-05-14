@@ -1,6 +1,10 @@
-# Ordino — Yağcı planlaması (modüler)
+# Ordino — Yağcı planlaması
 
-Streamlit tabanlı vardiya planlama aracı. Veri **SQLite** üzerindedir; v8 tarafında eklenen **vardiya_plan**, **gemi_makine**, **sertifika** ve **takas** tabloları migrasyonla oluşturulur.
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)
+![Streamlit](https://img.shields.io/badge/Streamlit-1.40%2B-FF4B4B?logo=streamlit)
+![SQLite](https://img.shields.io/badge/SQLite-3-003B57?logo=sqlite)
+
+Streamlit + SQLite ile gemi–makine–personel vardiya planı. Bu dalda **modüler backend** (`src/services`, `src/database` migrasyonları) ve **Yapboz (v8)** sekmesi kullanılır; giriş `.env` / Secrets ile yapılır.
 
 ## Kurulum
 
@@ -9,42 +13,37 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Giriş bilgileri: `.env` veya Streamlit Secrets içinde `ORDINO_ADMIN_USER` / `ORDINO_ADMIN_PASSWORD` (varsayılan `admin` / `7283` — üretimde mutlaka değiştirin).
-
-## Modül yapısı (backend ağırlıklı)
+## Modül yapısı
 
 | Yol | Açıklama |
 |-----|----------|
-| `src/constants.py` | Vardiya saatleri, NLP kelime listeleri, varsayılan ayarlar |
-| `src/time_utils.py` | Saat çakışması ve süre (dakika) |
-| `src/json_utils.py` | `gemi_id_list` / `makine_tipi_id_list` JSON yardımcıları |
-| `src/database.py` | Bağlantı, şema, migrasyon, `gemi_makine` tohumlaması |
-| `src/services/planning_service.py` | Plan sorguları (çakışma, izin, haftalık saat, bugünün planı) |
-| `src/services/oneri_engine.py` | v8 öneri motoru (NLP + kurallar; Streamlit bağımsız) |
+| `src/constants.py` | Vardiya saatleri, NLP listeleri, varsayılan ayarlar |
+| `src/time_utils.py` | Saat çakışması ve süre |
+| `src/json_utils.py` | Liste JSON alanları |
+| `src/database.py` | WAL, migrasyon, `vardiya_plan` / `gemi_makine` / tohumlama |
+| `src/services/planning_service.py` | Plan sorguları |
+| `src/services/oneri_engine.py` | v8 öneri motoru (Streamlit bağımsız) |
 | `src/ui/v8_yapboz.py` | Yapboz arayüzü |
-| `app.py` | Giriş, sekmeler, sidebar planlama ayarları |
+| `app.py` | Kimlik doğrulama, sekmeler, sidebar planlama ayarları |
 
-## QA ve Excel raporu
+## QA ve Excel
 
 ```bash
 python -m pytest tests -q
 python scripts/qa_report_excel.py
 ```
 
-Çıktı: `reports/ordino_qa_raporu.xlsx` (özet + test satırları).
+Çıktı: `reports/ordino_qa_raporu.xlsx` (git’e alınmaz; `*.xlsx` ignore).
 
 ## Yeni GitHub reposu
-
-Yerelde:
 
 ```bash
 gh repo create ordino-yagci-v8 --public --source=. --remote=origin --push
 ```
 
-Mevcut repoyu kopyalayıp yeni remote ile:
+veya yeni boş repo oluşturup:
 
 ```bash
-git remote rename origin upstream
-git remote add origin https://github.com/KULLANICI/ordino-yagci-v8.git
-git push -u origin master
+git remote add yeni https://github.com/KULLANICI/REPO.git
+git push yeni master
 ```
