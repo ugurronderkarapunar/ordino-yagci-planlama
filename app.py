@@ -18,7 +18,10 @@ import streamlit as st
 
 from src import database as db
 from src.config import get_admin_credentials
+from src.constants import DEFAULT_AYARLAR
 from src.oneri_motoru import to_dict_rows, onerileri_hesapla
+from src.services.planning_service import bugun_plani_olustur
+from src.ui.v8_yapboz import render_yapboz
 from src.vardiya_kurallari import gun_sayisi, izin_pzt_3gun
 
 GUNLER_TR = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
@@ -350,6 +353,7 @@ def _sayfa_bilgi() -> None:
             or {"c": 0}
         )["c"]
     )
+    plan_bugun = bugun_plani_olustur()
     sabit = int((db.sql_one("SELECT COUNT(*) AS c FROM personel WHERE vardiya_tipi = 'SABIT'") or {"c": 0})["c"])
     tersane = int((db.sql_one("SELECT COUNT(*) AS c FROM personel WHERE vardiya_tipi = '8_5'") or {"c": 0})["c"])
     st.markdown(
@@ -373,6 +377,11 @@ def _sayfa_bilgi() -> None:
     )
     st.markdown("#### Gemilerde personel dağılımı")
     st.dataframe(pd.DataFrame([dict(r) for r in gemi_bazli]), use_container_width=True)
+    st.markdown("#### Bugünün gemi–makine planı (vardiya_plan)")
+    if plan_bugun:
+        st.dataframe(pd.DataFrame(plan_bugun), use_container_width=True)
+    else:
+        st.caption("Bugün için gemi_makine veya vardiya_plan kaydı yok; Yapboz sekmesinden atama yapın.")
 
 
 def main() -> None:
@@ -487,13 +496,22 @@ def main() -> None:
         unsafe_allow_html=True,
     )
     db.init_db()
+    if "ayarlar" not in st.session_state:
+        st.session_state.ayarlar = dict(DEFAULT_AYARLAR)
     if not st.session_state.get("ordino_auth"):
         _login_form()
         return
     _logout()
     st.sidebar.caption("Şifreyi değiştirmek için yerelde `.env` veya Streamlit Cloud’da Secrets içinde `ORDINO_ADMIN_PASSWORD` düzenleyin.")
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
-        ["Gemiler", "Personel", "İzin", "Çarkçı", "Öneri", "Bilgi"]
+    with st.sidebar.expander("Planlama ayarları (v8 motor)", expanded=False):
+        ay = st.session_state.ayarlar
+        md = st.number_input("Min. dinlenme (saat)", min_value=4, max_value=24, value=int(ay.get("min_dinlenme_suresi_saat", 11)), key="ay_md")
+        mh = st.number_input("Max haftalık saat", min_value=20, max_value=80, value=int(ay.get("max_haftalik_saat", 45)), key="ay_mh")
+        if st.button("Ayarları kaydet", key="ay_kaydet"):
+            st.session_state.ayarlar = {"min_dinlenme_suresi_saat": md, "max_haftalik_saat": mh, "yillik_izin_hakki": int(ay.get("yillik_izin_hakki", 14))}
+            st.success("Güncellendi.")
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
+        ["Gemiler", "Personel", "İzin", "Çarkçı", "Öneri", "Yapboz (v8)", "Bilgi"]
     )
     with tab1:
         _sayfa_excel()
@@ -506,6 +524,8 @@ def main() -> None:
     with tab5:
         _sayfa_oneri()
     with tab6:
+        render_yapboz()
+    with tab7:
         _sayfa_bilgi()
 
 

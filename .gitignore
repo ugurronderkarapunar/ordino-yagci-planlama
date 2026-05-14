@@ -5,3 +5,5 @@ __pycache__/
 .streamlit/secrets.toml
 *.xlsx
 !data/ornek_gemiler.xlsx
+reports/junit.xml
+.pytest_cache/
