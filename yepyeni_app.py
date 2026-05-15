@@ -1,10 +1,13 @@
 """
-Ordino Yağcı Planlaması — v8.0
+Ordino Yağcı Planlaması — v8.1
 Yenilikler:
+ - Otomatik veritabanı migration (eksik sütunlar eklenir)
+ - Gemi silme butonu
+ - Personel düzenlemede vardiya günleri güncelleme
  - N+1 sorgu → JOIN'li toplu sorgular
  - st.cache_data ile öneri motoru önbelleği
  - Yapboz: gemi bazlı accordion
- - Haftalık/Aylık Takvim Görünümü (yeni sekme)
+ - Haftalık/Aylık Takvim Görünümü
  - Vardiya Çakışma Raporu
  - Vardiya Takas Talebi
  - Personel Yük Dengesi Grafiği
@@ -230,7 +233,6 @@ def sertifika_uyarilari_al():
 def bugun_plani_olustur():
     """Tek sorgu ile tüm gemi-makine-personel planını getirir."""
     bugun = date.today().isoformat()
-
     atananlar = sql_all(
         """SELECT g.ad AS gemi, m.ad AS makine, p.ad||' '||p.soyad AS personel
            FROM vardiya_plan v
@@ -241,7 +243,6 @@ def bugun_plani_olustur():
         (bugun,),
     )
     atanmis_set = {(r["gemi"], r["makine"]) for r in atananlar}
-
     tum_pozisyonlar = sql_all(
         """SELECT g.ad AS gemi, m.ad AS makine
            FROM gemi_makine gm
@@ -249,7 +250,6 @@ def bugun_plani_olustur():
            JOIN makine_tipi m ON gm.makine_tipi_id=m.id
            ORDER BY g.ad, m.ad"""
     )
-
     atanan_map = {(r["gemi"], r["makine"]): r["personel"] for r in atananlar}
     plan = []
     for poz in tum_pozisyonlar:
@@ -481,7 +481,7 @@ def pdf_rapor_olustur(tip="aylik_ozet", ay=None, yil=None, baslangic=None, bitis
     pdf.output(str(path))
     return path
 
-# ---------- DB INIT ----------
+# ---------- DB INIT (OTOMATİK MIGRATION İLE) ----------
 def init_db():
     conn = get_connection()
     c = conn.cursor()
@@ -538,10 +538,20 @@ def init_db():
         olusturma_tarihi TEXT NOT NULL,
         FOREIGN KEY(talep_eden_id) REFERENCES personel(id),
         FOREIGN KEY(karsi_personel_id) REFERENCES personel(id))""")
-    try: c.execute("ALTER TABLE personel ADD COLUMN yillik_izin_hakki INTEGER")
-    except: pass
+
+    # --- OTOMATİK MIGRATION: Eksik sütunları ekle (eski veritabanları için) ---
+    for table, col_def in [
+        ("gemi", "konum TEXT"),
+        ("personel", "yillik_izin_hakki INTEGER")
+    ]:
+        try:
+            c.execute(f"ALTER TABLE {table} ADD COLUMN {col_def}")
+        except sqlite3.OperationalError:
+            pass  # sütun zaten varsa hata verir, önemsiz
+
     conn.commit()
     conn.close()
+
 
 def test_verisi_olustur():
     for t in ["vardiya_plan","personel_sertifika","performans_gecmis","carkci",
@@ -621,7 +631,7 @@ def ayarlar_sayfasi():
         st.success("Ayarlar güncellendi.")
 
 # ═══════════════════════════════════════════════════════
-# SAYFA: YAPBOZ
+# SAYFA: YAPBOZ (accordion ile iyileştirildi)
 # ═══════════════════════════════════════════════════════
 def _sayfa_yapboz():
     st.subheader("🧩 İnteraktif Yapboz")
@@ -671,6 +681,7 @@ def _sayfa_yapboz():
 
     izinli = bugun_izinli_ids()
 
+    # ── Gemi bazlı ACCORDION (iyileştirme) ─────────────────────────────────
     for gemi in gemiler:
         gemi_mak = sql_all("SELECT makine_tipi_id FROM gemi_makine WHERE gemi_id=?", (gemi["id"],))
         if not gemi_mak:
@@ -790,7 +801,7 @@ def _sayfa_yapboz():
                                                 st.error("Bu atama zaten mevcut!")
 
 # ═══════════════════════════════════════════════════════
-# SAYFA: HAFTALIK / AYLIK TAKVİM
+# SAYFA: HAFTALIK / AYLIK TAKVİM (YENİ)
 # ═══════════════════════════════════════════════════════
 def _sayfa_takvim():
     st.subheader("📅 Haftalık / Aylık Takvim")
@@ -932,7 +943,7 @@ def _sayfa_takvim():
         st.markdown("**Renk:** 🟢 %80+ dolu &nbsp; 🟡 %40–80 &nbsp; 🔴 <%40 &nbsp; ⬛ Atama yok")
 
 # ═══════════════════════════════════════════════════════
-# SAYFA: ANALİTİK
+# SAYFA: ANALİTİK (YENİ — Yük dengesi, Doluluk, Fazla mesai, Çakışma raporu)
 # ═══════════════════════════════════════════════════════
 def _sayfa_analitik():
     st.subheader("📊 Analitik & Raporlar")
@@ -949,6 +960,7 @@ def _sayfa_analitik():
         "⚠️ Çakışma Raporu",
     ])
 
+    # ── 1. Personel Yük Dengesi ─────────────────────────────────────────────
     with tab1:
         st.markdown("#### Bu Ay Çalışma Günleri")
         ay_bas  = date(bugun.year, bugun.month, 1)
@@ -997,6 +1009,7 @@ def _sayfa_analitik():
                 columns={"personel":"Ad Soyad","vardiya_tipi":"Vardiya","gun_sayisi":"Gün","durum":"Durum"}
             ), use_container_width=True)
 
+    # ── 2. Gemi Doluluk Oranı ───────────────────────────────────────────────
     with tab2:
         st.markdown("#### Son 30 Günlük Gemi Doluluk Oranı")
         bas_30 = bugun - timedelta(days=29)
@@ -1042,6 +1055,7 @@ def _sayfa_analitik():
             ort_dol["Ort. Doluluk (%)"] = ort_dol["Ort. Doluluk (%)"].round(1)
             st.dataframe(ort_dol, use_container_width=True)
 
+    # ── 3. Fazla Mesai Takibi ───────────────────────────────────────────────
     with tab3:
         st.markdown("#### Bu Hafta Fazla Mesai Durumu")
         ayar     = st.session_state.get("ayarlar", DEFAULT_AYARLAR)
@@ -1107,6 +1121,7 @@ def _sayfa_analitik():
             if not fazla.empty:
                 st.warning(f"⚠️ **{len(fazla)} personel** bu hafta {max_saat} saati aştı!")
 
+    # ── 4. Çakışma Raporu ───────────────────────────────────────────────────
     with tab4:
         st.markdown("#### Üst Üste Çalışma & Çakışma Analizi")
 
@@ -1161,7 +1176,7 @@ def _sayfa_analitik():
                 st.success("✅ Seçili aralıkta ardışık çalışma tespit edilmedi.")
 
 # ═══════════════════════════════════════════════════════
-# SAYFA: VARDIYA TAKAS
+# SAYFA: VARDIYA TAKAS (YENİ)
 # ═══════════════════════════════════════════════════════
 def _sayfa_takas():
     st.subheader("🔁 Vardiya Takas Talebi")
@@ -1420,14 +1435,10 @@ def _sayfa_excel():
     if g_rows:
         for gemi in g_rows:
             c1, c2, c3, c4, c5 = st.columns([3,2,2,2,1])
-            with c1:
-                st.write(f"**{gemi['ad']}**")
-            with c2:
-                st.write(f"Kod: {gemi['kod'] or '-'}")
-            with c3:
-                st.write(f"Konum: {gemi['konum'] or '-'}")
-            with c4:
-                st.write(f"Personel: {gemi['personel']}")
+            with c1: st.write(f"**{gemi['ad']}**")
+            with c2: st.write(f"Kod: {gemi['kod'] or '-'}")
+            with c3: st.write(f"Konum: {gemi['konum'] or '-'}")
+            with c4: st.write(f"Personel: {gemi['personel']}")
             with c5:
                 if btn("🗑️", key=f"sil_gemi_{gemi['id']}",
                        caption="Gemiyi siler", type="secondary"):
@@ -1508,7 +1519,7 @@ def _sayfa_personel():
         if not mev: return
         yvt = st.selectbox("Vardiya",VARDIYA_TIPLERI,index=VARDIYA_TIPLERI.index(mev["vardiya_tipi"]) if mev.get("vardiya_tipi") in VARDIYA_TIPLERI else 0,key="pd_vt")
 
-        # ── VARDİYA GÜNLERİ (YENİ) ──────────────────────────────────────
+        # ── VARDİYA GÜNLERİ ──────────────────────────────────────
         mevcut_gunler_json = mev.get("vardiya_gunleri")
         if mevcut_gunler_json:
             try:
@@ -1520,7 +1531,7 @@ def _sayfa_personel():
             mevcut_gunler = []
         ygunler = st.multiselect("Vardiya Günleri", GUNLER_TR, default=mevcut_gunler, key="pd_vg")
         ygunler_json = json.dumps([GUNLER_TR.index(g) for g in ygunler])
-        # ──────────────────────────────────────────────────────────────────
+        # ──────────────────────────────────────────────────────────
 
         mids = _id_listesi(mev.get("makine_tipi_id_list"))
         ymak = st.multiselect("Makine",[r["id"] for r in makineler],default=[m for m in mids if m in [r["id"] for r in makineler]],format_func=lambda i:next(r["ad"] for r in makineler if r["id"]==i),key="pd_mak")
@@ -1803,7 +1814,7 @@ def main():
 
     with st.sidebar:
         st.title("⚓ Ordino")
-        st.caption("v8.0")
+        st.caption("v8.1")
         if btn("🌓 Tema",key="tema_sidebar",caption="Açık/koyu tema"):
             st.session_state.tema_koyu = not st.session_state.tema_koyu
             st.rerun()
