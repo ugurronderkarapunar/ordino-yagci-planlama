@@ -1,0 +1,72 @@
+.stApp {
+    background: linear-gradient(160deg, #0e0a06 0%, #1f1810 100%);
+}
+[data-testid="stAppViewContainer"] .main .block-container {
+    background: rgba(20, 18, 16, 0.97);
+    border: 1px solid #ffb366;
+    border-radius: 14px;
+    padding: 1.2rem 1.2rem 1.5rem;
+    box-shadow: 0 12px 34px rgba(0, 0, 0, 0.6);
+    color: #f5e6d3;
+}
+h1, h2, h3, h4, p, li, label, span, div {
+    color: #f5e6d3 !important;
+}
+[data-testid="stForm"] {
+    background: #2b2018;
+    border: 1px solid #ffb366;
+    border-radius: 12px;
+    padding: 0.9rem 1rem;
+}
+[data-testid="stExpander"] {
+    border: 1px solid #ffb366;
+    border-radius: 12px;
+    background: #2b2018;
+}
+[data-baseweb="input"] > div,
+[data-baseweb="select"] > div,
+.stDateInput > div > div,
+.stTextArea textarea {
+    background: #1f1810 !important;
+    border-color: #f4bf8a !important;
+    border-radius: 10px;
+    color: #f5e6d3 !important;
+}
+.stButton button {
+    width: 100%;
+    min-height: 44px;
+    background: #f3831f;
+    color: #ffffff;
+    border: 1px solid #d66d12;
+    border-radius: 10px;
+    font-weight: 600;
+    transition: all 0.15s ease-in-out;
+}
+.stButton button:hover {
+    background: #d96f14;
+    border-color: #bf5f10;
+}
+.stDataFrame, .stTable {
+    background: #1f1810;
+    border-radius: 10px;
+    border: 1px solid #f7d7b4;
+}
+.stTabs [role="tab"] {
+    background: #2b2018;
+    border: 1px solid #ffcb97;
+    border-radius: 8px;
+    color: #f5e6d3;
+    font-weight: 600;
+}
+.stTabs [aria-selected="true"] {
+    background: #f3831f !important;
+    color: #ffffff !important;
+}
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #1a1410, #2b2018);
+    border-left: 1px solid #ffd1a0;
+}
+@media (max-width: 768px) {
+    .block-container { padding: 0.8rem 0.7rem 1.2rem; }
+    .stDataFrame { font-size: 13px; }
+}
