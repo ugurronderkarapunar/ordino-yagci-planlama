@@ -1,14 +1,15 @@
 """
-Ordino Yağcı Planlaması — v8.5
-İyileştirmeler:
- - IZINCI puan dengesi (80 + 120 = 200 toplam)
- - "Saat çakışmasını yoksay" isimlendirme
- - Test verisi işlemleri (silerek / silmeden ekleme)
- - Tüm vardiya_plan INSERT'lerinde ON CONFLICT DO NOTHING (INSERT OR IGNORE)
+Ordino Yağcı Planlaması — v9.0
+Yenilikler:
+ - Dashboard ana sayfası (kritik metrikler, hızlı işlemler)
+ - Toplu personel atama (CSV / Excel içe aktarma)
+ - Personel performans dashboard'u (trend, en çok çalışan/izinli)
+ - Gemi bazlı bütçe / maliyet takibi (saatlik ücret entegrasyonu)
+ - Şablon bazlı vardiya planı (referans hafta kopyalama)
 """
 from __future__ import annotations
 
-import json, sqlite3, calendar as _cal, shutil
+import json, sqlite3, calendar as _cal, shutil, io
 from datetime import date, timedelta, datetime
 from pathlib import Path
 from typing import Tuple, Dict
@@ -431,7 +432,6 @@ def onerileri_hesapla(gemi_id, makine_tipi_id, hedef_tarih, cikan_id=None, limit
         kalite_puan = {1: -30, 2: -20, 3: 0, 4: 10, 5: 20}.get(kalite, 0)
         ust_uste_ceza = -20 if iki_gun_ust_uste_mi(p["id"], hedef_tarih) else 0
         pespese_ceza  = -15 if ayni_gemi_pespese(p["id"], hedef_tarih, gemi_id) else 0
-        # IZINCI: vardiya puanı 80, bonus 120 → toplam 200 (önceki 300 yerine dengeli)
         vardiya_puan  = {"IZINCI": 80,"TERSANE": 95,"GECE": 105,"GRUPCU": 80,"SABIT": 60,"8_5": 40}.get(vardiya, 50)
         toplam_puan   = vardiya_puan + kalite_puan + nlp_etki + pespese_ceza + ust_uste_ceza
         if vardiya == "IZINCI": toplam_puan += 120
@@ -519,7 +519,7 @@ def init_db():
         carkci_ile_sorun INTEGER DEFAULT 0, carkci_sorun_notu TEXT,
         gemi_tutumu TEXT, izin_tercih_gunleri TEXT, izin_saat_araligi TEXT,
         is_kalitesi INTEGER, performans_notu TEXT, aktif INTEGER DEFAULT 1,
-        durum TEXT DEFAULT 'Gemide', yillik_izin_hakki INTEGER)""")
+        durum TEXT DEFAULT 'Gemide', yillik_izin_hakki INTEGER, saatlik_ucret REAL DEFAULT 0)""")
     c.execute("""CREATE TABLE IF NOT EXISTS izin (
         id INTEGER PRIMARY KEY AUTOINCREMENT, personel_id INTEGER NOT NULL,
         baslangic TEXT, bitis TEXT, gun_sayisi INTEGER, notlar TEXT, gunler_json TEXT,
@@ -573,6 +573,7 @@ def init_db():
             "gemi_tutumu": "TEXT",
             "izin_tercih_gunleri": "TEXT",
             "izin_saat_araligi": "TEXT",
+            "saatlik_ucret": "REAL DEFAULT 0",
         }
     }
     for table, columns in migration_map.items():
@@ -585,7 +586,6 @@ def init_db():
     conn.close()
 
 def test_verisi_olustur(sil=False):
-    """Test verisi ekler. sil=True ise önce tüm tabloları temizler."""
     if sil:
         for t in ["vardiya_plan","personel_sertifika","performans_gecmis","carkci",
                   "izin","personel","gemi_makine","makine_tipi","gemi","vardiya_takas"]:
@@ -599,7 +599,7 @@ def test_verisi_olustur(sil=False):
         try:
             sql_run("INSERT INTO gemi(ad,kod,konum) VALUES(?,?,?)",(ad,kod,konum))
         except sqlite3.IntegrityError:
-            pass  # already exists
+            pass
     gemi_ids = [r["id"] for r in sql_all("SELECT id FROM gemi")]
     for m in ["Dizel Motor","Kompresor","Pompa","Jenerator"]:
         try:
@@ -620,22 +620,22 @@ def test_verisi_olustur(sil=False):
             except:
                 pass
     personeller = [
-        ("Ahmet","YILMAZ",[gemi_ids[0]],[makine_ids[0],makine_ids[1]],"SABIT",[0,2,4],4,"Gemide","çalışkan ve dikkatli"),
-        ("Mehmet","DEMIR",[gemi_ids[1]],[makine_ids[1],makine_ids[2]],"GRUPCU",[1,3,5],3,"Gemide",""),
-        ("Ali","KAYA",[],[],"IZINCI",[],5,"İskelede","yedek personel"),
-        ("Veli","SAHIN",[gemi_ids[0]],[makine_ids[0]],"TERSANE",[0,2,4],2,"Gemide","biraz yavaş"),
-        ("Ayse","CELIK",[gemi_ids[2]],[makine_ids[2]],"8_5",[0,1,2,3,4],4,"Gemide",""),
-        ("Fatma","AYDIN",[gemi_ids[3]],[makine_ids[0],makine_ids[1]],"GECE",[0,1,2,3,4,5],3,"Gemide",""),
-        ("Hasan","OZTURK",[gemi_ids[1]],[makine_ids[1]],"SABIT",[1,3,5],4,"Gemide","güvenilir"),
-        ("Huseyin","ARSLAN",[gemi_ids[2]],[makine_ids[0],makine_ids[1],makine_ids[2]],"GRUPCU",[0,2,4],5,"Gemide","mükemmel"),
-        ("YEDEK1","KISI",[],[],"IZINCI",[],3,"İskelede","evrensel yedek"),
-        ("YEDEK2","KISI",[],[],"IZINCI",[],4,"İskelede","evrensel yedek"),
+        ("Ahmet","YILMAZ",[gemi_ids[0]],[makine_ids[0],makine_ids[1]],"SABIT",[0,2,4],4,"Gemide","çalışkan ve dikkatli", 150),
+        ("Mehmet","DEMIR",[gemi_ids[1]],[makine_ids[1],makine_ids[2]],"GRUPCU",[1,3,5],3,"Gemide","", 140),
+        ("Ali","KAYA",[],[],"IZINCI",[],5,"İskelede","yedek personel", 130),
+        ("Veli","SAHIN",[gemi_ids[0]],[makine_ids[0]],"TERSANE",[0,2,4],2,"Gemide","biraz yavaş", 120),
+        ("Ayse","CELIK",[gemi_ids[2]],[makine_ids[2]],"8_5",[0,1,2,3,4],4,"Gemide","", 135),
+        ("Fatma","AYDIN",[gemi_ids[3]],[makine_ids[0],makine_ids[1]],"GECE",[0,1,2,3,4,5],3,"Gemide","", 145),
+        ("Hasan","OZTURK",[gemi_ids[1]],[makine_ids[1]],"SABIT",[1,3,5],4,"Gemide","güvenilir", 150),
+        ("Huseyin","ARSLAN",[gemi_ids[2]],[makine_ids[0],makine_ids[1],makine_ids[2]],"GRUPCU",[0,2,4],5,"Gemide","mükemmel", 160),
+        ("YEDEK1","KISI",[],[],"IZINCI",[],3,"İskelede","evrensel yedek", 100),
+        ("YEDEK2","KISI",[],[],"IZINCI",[],4,"İskelede","evrensel yedek", 110),
     ]
-    for ad,soyad,gemi_list,makine_list,vardiya,gunler,kalite,durum,p_not in personeller:
-        sql_run("INSERT OR IGNORE INTO personel(ad,soyad,gemi_id,gemi_id_list,makine_tipi_id,makine_tipi_id_list,vardiya_tipi,vardiya_gunleri,is_kalitesi,durum,performans_notu) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+    for ad,soyad,gemi_list,makine_list,vardiya,gunler,kalite,durum,p_not,ucret in personeller:
+        sql_run("INSERT OR IGNORE INTO personel(ad,soyad,gemi_id,gemi_id_list,makine_tipi_id,makine_tipi_id_list,vardiya_tipi,vardiya_gunleri,is_kalitesi,durum,performans_notu,saatlik_ucret) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                 (ad,soyad,gemi_list[0] if gemi_list else None,_gemi_id_json(gemi_list),
                  makine_list[0] if makine_list else None,_makine_id_json(makine_list),
-                 vardiya,json.dumps(gunler),kalite,durum,p_not))
+                 vardiya,json.dumps(gunler),kalite,durum,p_not, ucret))
     p_map = {f"{p['ad']} {p['soyad']}": p["id"] for p in sql_all("SELECT id,ad,soyad FROM personel")}
     bugun = date.today()
     sql_run("INSERT OR IGNORE INTO izin(personel_id,baslangic,bitis,gun_sayisi,notlar) VALUES(?,?,?,?,?)",
@@ -649,6 +649,11 @@ def test_verisi_olustur(sil=False):
             d = bugun - timedelta(days=delta)
             sql_run("INSERT OR IGNORE INTO vardiya_plan(personel_id,gemi_id,makine_tipi_id,tarih,baslangic_saat,bitis_saat) VALUES(?,?,?,?,?,?)",
                     (pid, gemi_ids[0], makine_ids[0], d.isoformat(), "08:00", "17:00"))
+    for pid in list(p_map.values())[:4]:
+        for w in range(4):
+            tarih = (bugun - timedelta(weeks=w)).isoformat()
+            puan = 50 + (pid * 7 + w * 3) % 40
+            sql_run("INSERT OR IGNORE INTO performans_gecmis(personel_id,tarih,puan) VALUES(?,?,?)", (pid, tarih, puan))
     st.success("Test verisi " + ("oluşturuldu (mevcut veriler korundu)." if not sil else "oluşturuldu (tüm veriler silindi)."))
 
 # ---------- AYARLAR ----------
@@ -667,7 +672,254 @@ def ayarlar_sayfasi():
         st.success("Ayarlar güncellendi.")
 
 # ═══════════════════════════════════════════════════════
-# SAYFA: YAPBOZ
+# DASHBOARD
+# ═══════════════════════════════════════════════════════
+def _sayfa_dashboard():
+    st.subheader("🏠 Dashboard")
+    bugun = date.today()
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("👥 Aktif Personel", sql_one("SELECT COUNT(*) AS c FROM personel WHERE aktif=1")["c"])
+    col2.metric("🚢 Gemiler", sql_one("SELECT COUNT(*) AS c FROM gemi")["c"])
+    col3.metric("🏝️ Bugün İzinde", len(bugun_izinli_ids()))
+    toplam_poz = sql_one("SELECT COUNT(*) AS c FROM gemi_makine")["c"] or 1
+    bugun_atanan = sql_one("SELECT COUNT(DISTINCT gemi_id||'-'||makine_tipi_id) AS c FROM vardiya_plan WHERE tarih=?", (bugun.isoformat(),))["c"] or 0
+    bos = toplam_poz - bugun_atanan
+    col4.metric("🟡 Boş Pozisyon", f"{bos}/{toplam_poz}")
+
+    with st.expander("⚡ Hızlı İşlemler"):
+        cA, cB = st.columns(2)
+        with cA:
+            if btn("🤖 Bugünü Otomatik Doldur", key="dash_otomatik", caption="Bugünün tüm boş pozisyonlarını doldurur"):
+                with st.spinner():
+                    for gemi in sql_all("SELECT id FROM gemi"):
+                        for gm in sql_all("SELECT makine_tipi_id FROM gemi_makine WHERE gemi_id=?", (gemi["id"],)):
+                            if not vardiya_plani_kontrol(gemi["id"], gm["makine_tipi_id"], bugun):
+                                oneri = onerileri_hesapla(gemi["id"], gm["makine_tipi_id"], bugun, limit=1)
+                                if oneri and not oneri[0].get("zaten_atanmis"):
+                                    b, e = VARDIYA_SAATLERI.get(oneri[0]["vardiya_tipi"], ("08:00","08:00"))
+                                    sql_run("INSERT OR IGNORE INTO vardiya_plan(personel_id,gemi_id,makine_tipi_id,tarih,baslangic_saat,bitis_saat) VALUES(?,?,?,?,?,?)",
+                                            (oneri[0]["id"], gemi["id"], gm["makine_tipi_id"], bugun.isoformat(), b, e))
+                st.toast("Bugünün planı dolduruldu!", icon="🤖")
+                st.rerun()
+        with cB:
+            if btn("🧹 Bugünü Temizle", key="dash_temizle", caption="Bugünün tüm atamalarını siler", type="secondary"):
+                sql_run("DELETE FROM vardiya_plan WHERE tarih=?", (bugun.isoformat(),))
+                st.toast("Bugünün atamaları temizlendi!", icon="🧹")
+                st.rerun()
+
+    st.markdown("---")
+    st.markdown("### 📋 Bugün Eksik Pozisyonlar")
+    bugun_plani = bugun_plani_olustur()
+    bos_olanlar = [p for p in bugun_plani if "BOŞ" in p["Personel"]]
+    if bos_olanlar:
+        st.dataframe(pd.DataFrame(bos_olanlar), use_container_width=True)
+    else:
+        st.success("Tüm pozisyonlar dolu! ✅")
+
+# ═══════════════════════════════════════════════════════
+# TOPLU İÇE AKTARMA
+# ═══════════════════════════════════════════════════════
+def _sayfa_import():
+    st.subheader("📥 Toplu Personel Atama (CSV/Excel)")
+    st.info("Dosyanızda şu sütunlar olmalıdır: `Gemi`, `Makine`, `Personel` (Ad Soyad), `Tarih` (YYYY-MM-DD), `Baslangic`, `Bitis`. İlk satır başlık olmalıdır.")
+    uploaded_file = st.file_uploader("CSV veya Excel dosyası seçin", type=["csv","xlsx"], key="import_file")
+    if uploaded_file:
+        try:
+            if uploaded_file.name.endswith('.csv'):
+                df = pd.read_csv(uploaded_file)
+            else:
+                df = pd.read_excel(uploaded_file, engine='openpyxl')
+            st.write("Önizleme:", df.head())
+        except Exception as e:
+            st.error(f"Dosya okunamadı: {e}")
+            return
+
+        required_cols = ["Gemi","Makine","Personel","Tarih","Baslangic","Bitis"]
+        if not all(col in df.columns for col in required_cols):
+            st.error(f"Dosyada şu sütunlar bulunmalıdır: {required_cols}")
+            return
+
+        gemiler = sql_all("SELECT id,ad FROM gemi")
+        makine_tipleri = sql_all("SELECT id,ad FROM makine_tipi")
+        personeller = sql_all("SELECT id,ad||' '||soyad AS full_name FROM personel WHERE aktif=1")
+        gemi_map = {g["ad"]: g["id"] for g in gemiler}
+        mak_map = {m["ad"]: m["id"] for m in makine_tipleri}
+        pers_map = {p["full_name"]: p["id"] for p in personeller}
+
+        errors = []
+        basarili = 0
+        for idx, row in df.iterrows():
+            gemi_ad = str(row["Gemi"]).strip()
+            makine_ad = str(row["Makine"]).strip()
+            personel_ad = str(row["Personel"]).strip()
+            tarih_str = str(row["Tarih"]).strip()
+            bas_saat = str(row["Baslangic"]).strip()
+            bit_saat = str(row["Bitis"]).strip()
+
+            if gemi_ad not in gemi_map:
+                errors.append(f"Satır {idx+2}: Gemi '{gemi_ad}' bulunamadı")
+                continue
+            if makine_ad not in mak_map:
+                errors.append(f"Satır {idx+2}: Makine '{makine_ad}' bulunamadı")
+                continue
+            if personel_ad not in pers_map:
+                errors.append(f"Satır {idx+2}: Personel '{personel_ad}' bulunamadı")
+                continue
+            try:
+                date.fromisoformat(tarih_str)
+            except:
+                errors.append(f"Satır {idx+2}: Geçersiz tarih formatı ({tarih_str})")
+                continue
+
+            sql_run("INSERT OR IGNORE INTO vardiya_plan(personel_id,gemi_id,makine_tipi_id,tarih,baslangic_saat,bitis_saat) VALUES(?,?,?,?,?,?)",
+                    (pers_map[personel_ad], gemi_map[gemi_ad], mak_map[makine_ad], tarih_str, bas_saat, bit_saat))
+            basarili += 1
+
+        if basarili:
+            st.toast(f"{basarili} kayıt başarıyla eklendi!", icon="✅")
+        if errors:
+            st.warning("Bazı satırlar atlandı:")
+            for e in errors:
+                st.write(e)
+        st.rerun()
+
+# ═══════════════════════════════════════════════════════
+# PERFORMANS DASHBOARDU
+# ═══════════════════════════════════════════════════════
+def _sayfa_performans():
+    st.subheader("📈 Personel Performans Dashboard'u")
+    if not PLOTLY_AVAILABLE:
+        st.error("Grafikler için `pip install plotly` çalıştırın.")
+        return
+
+    personel_list = sql_all("SELECT id,ad||' '||soyad AS ad FROM personel WHERE aktif=1 ORDER BY ad")
+    sec_personel = st.selectbox("Personel Seç", [p["ad"] for p in personel_list], key="perf_pers")
+    if not sec_personel:
+        return
+    pid = [p["id"] for p in personel_list if p["ad"] == sec_personel][0]
+
+    perf_data = sql_all("SELECT tarih, puan FROM performans_gecmis WHERE personel_id=? ORDER BY tarih", (pid,))
+    if perf_data:
+        df_perf = pd.DataFrame(perf_data)
+        fig = px.line(df_perf, x="tarih", y="puan", title=f"{sec_personel} - Performans Trendi")
+        fig.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", font_color="#ddd")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("Henüz performans verisi yok.")
+
+    st.subheader("🏆 Lider Tablosu")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("**En Çok Çalışan (bu ay)**")
+        ay_bas = date.today().replace(day=1)
+        top_workers = sql_all(
+            """SELECT p.ad||' '||p.soyad AS personel, COUNT(DISTINCT v.tarih) AS gun
+               FROM personel p LEFT JOIN vardiya_plan v ON v.personel_id=p.id AND v.tarih BETWEEN ? AND ?
+               WHERE p.aktif=1 GROUP BY p.id ORDER BY gun DESC LIMIT 5""",
+            (ay_bas.isoformat(), date.today().isoformat()),
+        )
+        st.dataframe(pd.DataFrame(top_workers), use_container_width=True)
+    with col2:
+        st.markdown("**En Çok İzin Kullanan (bu yıl)**")
+        yil_bas = date.today().replace(month=1, day=1)
+        top_izin = sql_all(
+            """SELECT p.ad||' '||p.soyad AS personel, SUM(i.gun_sayisi) AS izin_gun
+               FROM personel p JOIN izin i ON i.personel_id=p.id
+               WHERE i.baslangic >= ? AND p.aktif=1 GROUP BY p.id ORDER BY izin_gun DESC LIMIT 5""",
+            (yil_bas.isoformat(),),
+        )
+        if top_izin:
+            st.dataframe(pd.DataFrame(top_izin), use_container_width=True)
+        else:
+            st.info("Bu yıl izin kullanımı yok.")
+
+# ═══════════════════════════════════════════════════════
+# BÜTÇE / MALİYET TAKİBİ
+# ═══════════════════════════════════════════════════════
+def _sayfa_butce():
+    st.subheader("💰 Gemi Bazlı Bütçe / Maliyet Takibi")
+    if not PLOTLY_AVAILABLE:
+        st.error("Grafikler için `pip install plotly` çalıştırın.")
+        return
+    ayar = st.session_state.get("ayarlar", DEFAULT_AYARLAR)
+
+    ay_sec = st.selectbox("Ay", range(1,13), index=date.today().month-1, format_func=lambda m: AY_ADLARI[m], key="butce_ay")
+    yil_sec = st.number_input("Yıl", value=date.today().year, min_value=2020, max_value=2030, key="butce_yil")
+    bas = date(yil_sec, ay_sec, 1)
+    son = date(yil_sec, ay_sec, _cal.monthrange(yil_sec, ay_sec)[1])
+
+    rows = sql_all(
+        """SELECT g.ad AS gemi,
+                  SUM(
+                    CASE
+                      WHEN CAST(SUBSTR(v.bitis_saat,1,2) AS INTEGER)*60 + CAST(SUBSTR(v.bitis_saat,4,2) AS INTEGER)
+                         > CAST(SUBSTR(v.baslangic_saat,1,2) AS INTEGER)*60 + CAST(SUBSTR(v.baslangic_saat,4,2) AS INTEGER)
+                      THEN (CAST(SUBSTR(v.bitis_saat,1,2) AS INTEGER)*60 + CAST(SUBSTR(v.bitis_saat,4,2) AS INTEGER))
+                         - (CAST(SUBSTR(v.baslangic_saat,1,2) AS INTEGER)*60 + CAST(SUBSTR(v.baslangic_saat,4,2) AS INTEGER))
+                      ELSE (CAST(SUBSTR(v.bitis_saat,1,2) AS INTEGER)*60 + CAST(SUBSTR(v.bitis_saat,4,2) AS INTEGER))
+                         - (CAST(SUBSTR(v.baslangic_saat,1,2) AS INTEGER)*60 + CAST(SUBSTR(v.baslangic_saat,4,2) AS INTEGER)) + 1440
+                    END
+                  ) * COALESCE(p.saatlik_ucret, 0) / 60.0 AS toplam_maliyet
+           FROM vardiya_plan v
+           JOIN personel p ON v.personel_id = p.id
+           JOIN gemi g ON v.gemi_id = g.id
+           WHERE v.tarih BETWEEN ? AND ?
+           GROUP BY g.id""",
+        (bas.isoformat(), son.isoformat()),
+    )
+    if rows:
+        df = pd.DataFrame(rows)
+        fig = px.bar(df, x="gemi", y="toplam_maliyet", title=f"{AY_ADLARI[ay_sec]} {yil_sec} Gemi Bazlı Tahmini Maliyet",
+                     labels={"gemi":"Gemi", "toplam_maliyet":"Toplam Maliyet (TL)"})
+        fig.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", font_color="#ddd")
+        st.plotly_chart(fig, use_container_width=True)
+        st.dataframe(df.rename(columns={"gemi":"Gemi","toplam_maliyet":"Maliyet"}), use_container_width=True)
+    else:
+        st.info("Bu döneme ait vardiya verisi yok.")
+
+# ═══════════════════════════════════════════════════════
+# ŞABLON BAZLI PLAN
+# ═══════════════════════════════════════════════════════
+def _sayfa_sablon():
+    st.subheader("📋 Şablon Bazlı Vardiya Planı")
+    st.info("Referans bir haftanın vardiya planını başka bir tarih aralığına kopyalayın.")
+    col_ref, col_target = st.columns(2)
+    with col_ref:
+        st.markdown("**Referans Hafta**")
+        ref_bas = st.date_input("Başlangıç (Pazartesi)", value=date.today()-timedelta(days=date.today().weekday()), key="sablon_ref")
+        ref_son = ref_bas + timedelta(days=6)
+    with col_target:
+        st.markdown("**Hedef Aralık**")
+        target_bas = st.date_input("Başlangıç Tarihi", value=date.today()+timedelta(weeks=1), key="sablon_target_bas")
+        target_son = st.date_input("Bitiş Tarihi", value=target_bas+timedelta(days=6), key="sablon_target_son")
+    if btn("🔄 Şablonu Uygula", key="sablon_uygula", caption="Referans haftadaki tüm atamaları hedef aralığa kopyalar"):
+        ref_data = sql_all(
+            """SELECT personel_id, gemi_id, makine_tipi_id, tarih, baslangic_saat, bitis_saat
+               FROM vardiya_plan WHERE tarih BETWEEN ? AND ?""",
+            (ref_bas.isoformat(), ref_son.isoformat()),
+        )
+        if not ref_data:
+            st.error("Referans haftada hiç atama bulunamadı.")
+            return
+        hedef_gunler = []
+        d = target_bas
+        while d <= target_son:
+            hedef_gunler.append(d)
+            d += timedelta(days=1)
+        basarili = 0
+        for row in ref_data:
+            original_tarih = date.fromisoformat(row["tarih"])
+            gun_farki = (original_tarih - ref_bas).days
+            if 0 <= gun_farki < len(hedef_gunler):
+                yeni_tarih = hedef_gunler[gun_farki]
+                sql_run("INSERT OR IGNORE INTO vardiya_plan(personel_id,gemi_id,makine_tipi_id,tarih,baslangic_saat,bitis_saat) VALUES(?,?,?,?,?,?)",
+                        (row["personel_id"], row["gemi_id"], row["makine_tipi_id"], yeni_tarih.isoformat(), row["baslangic_saat"], row["bitis_saat"]))
+                basarili += 1
+        st.toast(f"{basarili} atama kopyalandı!", icon="📋")
+        st.rerun()
+
+# ═══════════════════════════════════════════════════════
+# MEVCUT SAYFALAR (Yapboz, Takvim, Acil, Gemiler, Personel, İzin, Öneri, Takas, Analitik, Bilgi)
 # ═══════════════════════════════════════════════════════
 def _sayfa_yapboz():
     st.subheader("🧩 İnteraktif Yapboz")
@@ -833,9 +1085,6 @@ def _sayfa_yapboz():
                                                 del st.session_state[key_on]
                                                 st.toast(f"{o['ad']} {o['soyad']} atandı!"); st.rerun()
 
-# ═══════════════════════════════════════════════════════
-# SAYFA: HAFTALIK / AYLIK TAKVİM
-# ═══════════════════════════════════════════════════════
 def _sayfa_takvim():
     st.subheader("📅 Haftalık / Aylık Takvim")
     goruntu = st.radio("Görünüm", ["Haftalık","Aylık"], horizontal=True, key="takvim_goruntu")
@@ -933,231 +1182,13 @@ def _sayfa_takvim():
                     cols[i].markdown("<div style='padding:8px'></div>", unsafe_allow_html=True)
         st.markdown("**Renk:** 🟢 %80+ dolu &nbsp; 🟡 %40–80 &nbsp; 🔴 <%40 &nbsp; ⬛ Atama yok")
 
-# ═══════════════════════════════════════════════════════
-# SAYFA: ANALİTİK
-# ═══════════════════════════════════════════════════════
-def _sayfa_analitik():
-    st.subheader("📊 Analitik & Raporlar")
-    if not PLOTLY_AVAILABLE:
-        st.error("Analitik için `pip install plotly` çalıştırın.")
-        return
-    bugun = date.today()
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "⚖️ Personel Yük Dengesi",
-        "🚢 Gemi Doluluk Oranı",
-        "⏰ Fazla Mesai Takibi",
-        "⚠️ Çakışma Raporu",
-    ])
-    with tab1:
-        st.markdown("#### Bu Ay Çalışma Günleri")
-        ay_bas  = date(bugun.year, bugun.month, 1)
-        ay_bitis = bugun
-        yukler = sql_all(
-            """SELECT p.ad||' '||p.soyad AS personel, p.vardiya_tipi,
-                      COUNT(DISTINCT v.tarih) AS gun_sayisi
-               FROM personel p
-               LEFT JOIN vardiya_plan v ON v.personel_id=p.id
-                   AND v.tarih BETWEEN ? AND ?
-               WHERE p.aktif=1
-               GROUP BY p.id
-               ORDER BY gun_sayisi DESC""",
-            (ay_bas.isoformat(), ay_bitis.isoformat()),
-        )
-        if not yukler:
-            st.info("Henüz veri yok.")
-        else:
-            df_yuk = pd.DataFrame(yukler)
-            ort = df_yuk["gun_sayisi"].mean()
-            df_yuk["sapma"] = df_yuk["gun_sayisi"] - ort
-            df_yuk["renk"]  = df_yuk["sapma"].apply(lambda x: "#e74c3c" if x > 3 else ("#f39c12" if x > 1 else "#2ecc71"))
-            fig = go.Figure(go.Bar(x=df_yuk["personel"], y=df_yuk["gun_sayisi"], marker_color=df_yuk["renk"].tolist(), text=df_yuk["gun_sayisi"], textposition="outside"))
-            fig.add_hline(y=ort, line_dash="dash", line_color="#aaa", annotation_text=f"Ort: {ort:.1f} gün", annotation_position="top right")
-            fig.update_layout(title=f"{AY_ADLARI[bugun.month]} {bugun.year} — Personel Başına Çalışma Günü", plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", font_color="#ddd", height=420)
-            st.plotly_chart(fig, use_container_width=True)
-            df_yuk["durum"] = df_yuk["sapma"].apply(lambda x: "🔴 Aşırı yüklü" if x > 3 else ("🟡 Fazla" if x > 1 else "🟢 Dengeli"))
-            st.dataframe(df_yuk[["personel","vardiya_tipi","gun_sayisi","durum"]].rename(columns={"personel":"Ad Soyad","vardiya_tipi":"Vardiya","gun_sayisi":"Gün","durum":"Durum"}), use_container_width=True)
-    with tab2:
-        st.markdown("#### Son 30 Günlük Gemi Doluluk Oranı")
-        bas_30 = bugun - timedelta(days=29)
-        poz_sayisi = sql_all("""SELECT g.ad AS gemi, COUNT(gm.makine_tipi_id) AS toplam_poz FROM gemi g LEFT JOIN gemi_makine gm ON gm.gemi_id=g.id GROUP BY g.id""")
-        poz_map = {r["gemi"]: r["toplam_poz"] for r in poz_sayisi}
-        doluluk_data = sql_all("""SELECT g.ad AS gemi, v.tarih, COUNT(*) AS atama FROM vardiya_plan v JOIN gemi g ON v.gemi_id=g.id WHERE v.tarih BETWEEN ? AND ? GROUP BY g.id, v.tarih""", (bas_30.isoformat(), bugun.isoformat()))
-        if not doluluk_data:
-            st.info("Son 30 günde veri yok.")
-        else:
-            df_dol = pd.DataFrame(doluluk_data)
-            df_dol["doluluk_oran"] = df_dol.apply(lambda r: round(r["atama"] / max(poz_map.get(r["gemi"],1),1) * 100, 1), axis=1)
-            fig2 = px.line(df_dol, x="tarih", y="doluluk_oran", color="gemi", title="Gemi Bazlı Günlük Doluluk Oranı (%)", markers=True)
-            fig2.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", font_color="#ddd", yaxis_range=[0,110], height=400)
-            st.plotly_chart(fig2, use_container_width=True)
-            ort_dol = df_dol.groupby("gemi")["doluluk_oran"].mean().reset_index()
-            ort_dol.columns = ["Gemi","Ort. Doluluk (%)"]
-            ort_dol["Ort. Doluluk (%)"] = ort_dol["Ort. Doluluk (%)"].round(1)
-            st.dataframe(ort_dol, use_container_width=True)
-    with tab3:
-        st.markdown("#### Bu Hafta Fazla Mesai Durumu")
-        ayar     = st.session_state.get("ayarlar", DEFAULT_AYARLAR)
-        max_saat = ayar.get("max_haftalik_saat", 45)
-        hafta_basi = bugun - timedelta(days=bugun.weekday())
-        hafta_son  = hafta_basi + timedelta(days=6)
-        haftalik = sql_all(
-            """SELECT p.ad||' '||p.soyad AS personel, p.vardiya_tipi,
-                      SUM(CASE WHEN CAST(SUBSTR(v.bitis_saat,1,2) AS INTEGER)*60 + CAST(SUBSTR(v.bitis_saat,4,2) AS INTEGER)
-                               > CAST(SUBSTR(v.baslangic_saat,1,2) AS INTEGER)*60 + CAST(SUBSTR(v.baslangic_saat,4,2) AS INTEGER)
-                             THEN (CAST(SUBSTR(v.bitis_saat,1,2) AS INTEGER)*60 + CAST(SUBSTR(v.bitis_saat,4,2) AS INTEGER))
-                                - (CAST(SUBSTR(v.baslangic_saat,1,2) AS INTEGER)*60 + CAST(SUBSTR(v.baslangic_saat,4,2) AS INTEGER))
-                             ELSE (CAST(SUBSTR(v.bitis_saat,1,2) AS INTEGER)*60 + CAST(SUBSTR(v.bitis_saat,4,2) AS INTEGER))
-                                - (CAST(SUBSTR(v.baslangic_saat,1,2) AS INTEGER)*60 + CAST(SUBSTR(v.baslangic_saat,4,2) AS INTEGER)) + 1440
-                        END) / 60.0 AS toplam_saat
-               FROM personel p
-               JOIN vardiya_plan v ON v.personel_id=p.id
-               WHERE v.tarih BETWEEN ? AND ? AND p.aktif=1
-               GROUP BY p.id
-               HAVING toplam_saat > 0
-               ORDER BY toplam_saat DESC""",
-            (hafta_basi.isoformat(), hafta_son.isoformat()),
-        )
-        if not haftalik:
-            st.info("Bu hafta henüz vardiya verisi yok.")
-        else:
-            df_mesai = pd.DataFrame(haftalik)
-            df_mesai["fazla_mesai"] = (df_mesai["toplam_saat"] - max_saat).clip(lower=0).round(1)
-            df_mesai["durum"] = df_mesai["toplam_saat"].apply(lambda s: "🔴 Limit Aşıldı" if s > max_saat else ("🟡 Limite Yakın" if s > max_saat * 0.85 else "🟢 Normal"))
-            colors = df_mesai["toplam_saat"].apply(lambda s: "#e74c3c" if s > max_saat else ("#f39c12" if s > max_saat * 0.85 else "#3498db")).tolist()
-            fig3 = go.Figure(go.Bar(x=df_mesai["personel"], y=df_mesai["toplam_saat"], marker_color=colors, text=df_mesai["toplam_saat"].round(1), textposition="outside"))
-            fig3.add_hline(y=max_saat, line_dash="dash", line_color="#e74c3c", annotation_text=f"Limit: {max_saat}h", annotation_position="top right")
-            fig3.update_layout(title=f"Haftalık Çalışma Saati (Limit: {max_saat}h)", plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", font_color="#ddd", height=400)
-            st.plotly_chart(fig3, use_container_width=True)
-            st.dataframe(df_mesai[["personel","vardiya_tipi","toplam_saat","fazla_mesai","durum"]].rename(columns={"personel":"Ad Soyad","vardiya_tipi":"Vardiya","toplam_saat":"Toplam Saat","fazla_mesai":"Fazla Mesai (h)","durum":"Durum"}), use_container_width=True)
-            fazla = df_mesai[df_mesai["toplam_saat"] > max_saat]
-            if not fazla.empty:
-                st.warning(f"⚠️ **{len(fazla)} personel** bu hafta {max_saat} saati aştı!")
-    with tab4:
-        st.markdown("#### Üst Üste Çalışma & Çakışma Analizi")
-        col_a, col_b = st.columns(2)
-        with col_a:
-            cap_bas = st.date_input("Başlangıç", value=bugun - timedelta(days=14), key="cap_bas")
-        with col_b:
-            cap_bit = st.date_input("Bitiş", value=bugun, key="cap_bit")
-        if btn("🔍 Raporu Oluştur", key="cap_rapor", caption="Seçili aralıkta üst üste çalışanları listeler", help_text="Ardışık günlerde aynı personelin farklı gemilerde çalışmasını tespit eder."):
-            ust_uste_data = sql_all(
-                """SELECT v1.personel_id, p.ad||' '||p.soyad AS personel, p.vardiya_tipi,
-                          v1.tarih AS gun1, v2.tarih AS gun2, g1.ad AS gemi1, g2.ad AS gemi2
-                   FROM vardiya_plan v1
-                   JOIN vardiya_plan v2 ON v1.personel_id=v2.personel_id AND DATE(v2.tarih) = DATE(v1.tarih, '+1 day')
-                   JOIN personel p ON v1.personel_id=p.id
-                   JOIN gemi g1 ON v1.gemi_id=g1.id
-                   JOIN gemi g2 ON v2.gemi_id=g2.id
-                   WHERE v1.tarih BETWEEN ? AND ?
-                   ORDER BY v1.personel_id, v1.tarih""",
-                (cap_bas.isoformat(), cap_bit.isoformat()),
-            )
-            if ust_uste_data:
-                st.warning(f"**{len(ust_uste_data)} ardışık çalışma** tespit edildi:")
-                df_uu = pd.DataFrame(ust_uste_data)[["personel","vardiya_tipi","gun1","gun2","gemi1","gemi2"]]
-                df_uu.columns = ["Personel","Vardiya","Gün 1","Gün 2","Gemi 1","Gemi 2"]
-                st.dataframe(df_uu, use_container_width=True)
-                ozet = df_uu.groupby("Personel").size().reset_index(name="Ardışık Çift Sayısı")
-                ozet = ozet.sort_values("Ardışık Çift Sayısı", ascending=False)
-                fig4 = px.bar(ozet, x="Personel", y="Ardışık Çift Sayısı", title="Personel Başına Ardışık Çalışma Sayısı", color="Ardışık Çift Sayısı", color_continuous_scale=["#2ecc71","#f39c12","#e74c3c"])
-                fig4.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", font_color="#ddd", height=380)
-                st.plotly_chart(fig4, use_container_width=True)
-            else:
-                st.success("✅ Seçili aralıkta ardışık çalışma tespit edilmedi.")
-
-# ═══════════════════════════════════════════════════════
-# SAYFA: VARDIYA TAKAS
-# ═══════════════════════════════════════════════════════
-def _sayfa_takas():
-    st.subheader("🔁 Vardiya Takas Talebi")
-    st.info("İki personel arasında vardiya değişikliği talebi oluşturun. Yönetici onayı gereklidir.")
-    personeller = sql_all("SELECT id,ad,soyad FROM personel WHERE aktif=1 ORDER BY ad")
-    if len(personeller) < 2:
-        st.warning("En az 2 aktif personel gerekli.")
-        return
-    with st.expander("➕ Yeni Takas Talebi Oluştur", expanded=True):
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("**Talep Eden**")
-            talep_eden = st.selectbox("Personel", personeller, format_func=lambda p: f"{p['ad']} {p['soyad']}", key="takas_talep_eden")
-            talep_eden_tarih = st.date_input("Kendi vardiya tarihi", value=date.today(), key="takas_talep_eden_tarih")
-            te_vardiya = sql_one("""SELECT g.ad AS gemi, m.ad AS makine, v.baslangic_saat, v.bitis_saat FROM vardiya_plan v JOIN gemi g ON v.gemi_id=g.id JOIN makine_tipi m ON v.makine_tipi_id=m.id WHERE v.personel_id=? AND v.tarih=?""", (talep_eden["id"], talep_eden_tarih.isoformat()))
-            if te_vardiya:
-                st.success(f"📋 {te_vardiya['gemi']} / {te_vardiya['makine']} ({te_vardiya['baslangic_saat']}–{te_vardiya['bitis_saat']})")
-            else:
-                st.warning("Bu tarihte vardiyası yok.")
-        with c2:
-            st.markdown("**Karşı Personel**")
-            diger_personeller = [p for p in personeller if p["id"] != talep_eden["id"]]
-            karsi = st.selectbox("Personel", diger_personeller, format_func=lambda p: f"{p['ad']} {p['soyad']}", key="takas_karsi")
-            karsi_tarih = st.date_input("Karşı vardiya tarihi", value=date.today(), key="takas_karsi_tarih")
-            karsi_vardiya = sql_one("""SELECT g.ad AS gemi, m.ad AS makine, v.baslangic_saat, v.bitis_saat FROM vardiya_plan v JOIN gemi g ON v.gemi_id=g.id JOIN makine_tipi m ON v.makine_tipi_id=m.id WHERE v.personel_id=? AND v.tarih=?""", (karsi["id"], karsi_tarih.isoformat()))
-            if karsi_vardiya:
-                st.success(f"📋 {karsi_vardiya['gemi']} / {karsi_vardiya['makine']} ({karsi_vardiya['baslangic_saat']}–{karsi_vardiya['bitis_saat']})")
-            else:
-                st.warning("Bu tarihte vardiyası yok.")
-        notlar = st.text_area("Açıklama / Not", key="takas_notlar", height=60)
-        if btn("📤 Talep Gönder", key="takas_gonder", caption="Takas talebini oluşturur", help_text="Yöneticinin onaylaması için takas talebi oluşturur."):
-            if not te_vardiya:
-                st.error("Talep eden personelin seçili tarihte vardiyası yok!")
-            elif not karsi_vardiya:
-                st.error("Karşı personelin seçili tarihte vardiyası yok!")
-            elif talep_eden["id"] == karsi["id"]:
-                st.error("Aynı personel seçilemez!")
-            else:
-                sql_run("INSERT INTO vardiya_takas(talep_eden_id,karsi_personel_id,talep_eden_tarih,karsi_tarih,notlar,olusturma_tarihi) VALUES(?,?,?,?,?,?)",
-                        (talep_eden["id"], karsi["id"], talep_eden_tarih.isoformat(), karsi_tarih.isoformat(), notlar or None, datetime.now().isoformat()))
-                audit_log("takas","talep",f"{talep_eden['id']}<->{karsi['id']}")
-                st.success("✅ Takas talebi oluşturuldu! Yönetici onayı bekleniyor.")
-                st.rerun()
-    st.divider()
-    st.markdown("#### 📋 Bekleyen Takas Talepleri")
-    talepler = sql_all("""SELECT t.id, t.durum, t.talep_eden_tarih, t.karsi_tarih, t.notlar, t.olusturma_tarihi, p1.ad||' '||p1.soyad AS talep_eden, p2.ad||' '||p2.soyad AS karsi FROM vardiya_takas t JOIN personel p1 ON t.talep_eden_id=p1.id JOIN personel p2 ON t.karsi_personel_id=p2.id ORDER BY t.olusturma_tarihi DESC LIMIT 50""")
-    if not talepler:
-        st.info("Henüz takas talebi yok.")
-        return
-    for t in talepler:
-        durum_rengi = {"Beklemede":"🟡","Onaylandı":"🟢","Reddedildi":"🔴"}.get(t["durum"],"⚪")
-        with st.expander(f"{durum_rengi} #{t['id']} — {t['talep_eden']} ↔ {t['karsi']} | {t['talep_eden_tarih']} ↔ {t['karsi_tarih']}", expanded=(t["durum"] == "Beklemede")):
-            st.write(f"**Durum:** {t['durum']}")
-            st.write(f"**Oluşturma:** {t['olusturma_tarihi'][:16]}")
-            if t["notlar"]: st.write(f"**Not:** {t['notlar']}")
-            if t["durum"] == "Beklemede":
-                col_o, col_r, col_s = st.columns(3)
-                with col_o:
-                    if btn("✅ Onayla", key=f"takas_onayla_{t['id']}", caption="", help_text="Takas talebini onaylar ve vardiyaları değiştirir"):
-                        te_v = sql_one("""SELECT v.id FROM vardiya_plan v JOIN vardiya_takas tk ON v.personel_id=tk.talep_eden_id WHERE tk.id=? AND v.tarih=tk.talep_eden_tarih""", (t["id"],))
-                        ka_v = sql_one("""SELECT v.id FROM vardiya_plan v JOIN vardiya_takas tk ON v.personel_id=tk.karsi_personel_id WHERE tk.id=? AND v.tarih=tk.karsi_tarih""", (t["id"],))
-                        tk_row = sql_one("SELECT * FROM vardiya_takas WHERE id=?", (t["id"],))
-                        if te_v and ka_v and tk_row:
-                            try:
-                                sql_run("UPDATE vardiya_plan SET personel_id=? WHERE id=?", (tk_row["karsi_personel_id"], te_v["id"]))
-                                sql_run("UPDATE vardiya_plan SET personel_id=? WHERE id=?", (tk_row["talep_eden_id"], ka_v["id"]))
-                                sql_run("UPDATE vardiya_takas SET durum='Onaylandı' WHERE id=?", (t["id"],))
-                                audit_log("takas","onayla",f"id:{t['id']}")
-                                st.toast("✅ Takas gerçekleştirildi!"); st.rerun()
-                            except Exception as e:
-                                st.error(f"Hata: {e}")
-                        else:
-                            st.error("Vardiya bulunamadı, takas yapılamadı.")
-                with col_r:
-                    if btn("❌ Reddet", key=f"takas_reddet_{t['id']}", caption="", help_text="Talebi reddeder"):
-                        sql_run("UPDATE vardiya_takas SET durum='Reddedildi' WHERE id=?", (t["id"],))
-                        st.toast("❌ Talep reddedildi."); st.rerun()
-                with col_s:
-                    if btn("🗑️ Sil", key=f"takas_sil_{t['id']}", caption="", help_text="Talebi tamamen siler", type="secondary"):
-                        sql_run("DELETE FROM vardiya_takas WHERE id=?", (t["id"],))
-                        st.rerun()
-
-# ═══════════════════════════════════════════════════════
-# DİĞER SAYFALAR
-# ═══════════════════════════════════════════════════════
 def _sayfa_acil():
     st.subheader("⚡ Acil Panel")
     gem = sql_all("SELECT id,ad,konum FROM gemi ORDER BY ad")
     mak = sql_all("SELECT id,ad FROM makine_tipi ORDER BY ad")
     bugun = date.today()
     izinli = bugun_izinli_ids()
+
     with st.expander("📅 Dün Kim Çalıştı?"):
         dun = (bugun - timedelta(days=1)).isoformat()
         cd1, cd2 = st.columns(2)
@@ -1167,6 +1198,7 @@ def _sayfa_acil():
             row = sql_one("SELECT p.ad||' '||p.soyad AS isim,v.baslangic_saat,v.bitis_saat FROM vardiya_plan v JOIN personel p ON v.personel_id=p.id WHERE v.gemi_id=? AND v.makine_tipi_id=? AND v.tarih=?",(dun_gemi,dun_mak,dun))
             if row: st.success(f"Dün: **{row['isim']}** ({row['baslangic_saat']} - {row['bitis_saat']})")
             else: st.info("Dün bu pozisyonda kimse çalışmamış.")
+
     with st.expander("🏝️ Personeli İskeleye Çıkar"):
         isk_list = sql_all("SELECT id,ad,soyad FROM personel WHERE aktif=1 AND durum='Gemide' ORDER BY ad")
         if isk_list:
@@ -1177,6 +1209,7 @@ def _sayfa_acil():
                 st.toast("Personel iskeleye çıkarıldı!"); st.rerun()
         else:
             st.info("Gemide personel yok.")
+
     with st.expander("🚀 İskeledekileri Akıllı Dağıt"):
         if btn("🧠 Akıllı Dağıtım Başlat",key="btn_akilli_dagit",caption="İskelede/İZİNCİ personeli boş yerlere otomatik yerleştirir"):
             with st.spinner("Akıllı dağıtım yapılıyor..."):
@@ -1200,6 +1233,7 @@ def _sayfa_acil():
                         if atanan: break
                 if atanan>0: st.toast(f"{atanan} personel dağıtıldı!"); st.rerun()
                 else: st.warning("Hiçbir personel yerleştirilemedi.")
+
     st.divider(); st.markdown("### 📞 Anlık İzin Yerine")
     c1,c2 = st.columns(2)
     with c1:
@@ -1295,7 +1329,7 @@ def _sayfa_personel():
     with c2:
         fa = st.radio("Durum",["Tümü","Aktif","Pasif"],key="fa_radio",horizontal=True)
         fa = {"Aktif":1,"Pasif":0}.get(fa)
-    q = "SELECT p.id,p.ad,p.soyad,g.ad AS gemi,p.gemi_id_list,p.makine_tipi_id_list,p.vardiya_tipi,p.vardiya_gunleri,p.is_kalitesi,p.performans_notu,p.durum,p.aktif FROM personel p LEFT JOIN gemi g ON g.id=p.gemi_id"
+    q = "SELECT p.id,p.ad,p.soyad,g.ad AS gemi,p.gemi_id_list,p.makine_tipi_id_list,p.vardiya_tipi,p.vardiya_gunleri,p.is_kalitesi,p.performans_notu,p.durum,p.aktif,p.saatlik_ucret FROM personel p LEFT JOIN gemi g ON g.id=p.gemi_id"
     params = ()
     clauses = []
     if fv:       clauses.append("p.vardiya_tipi=?"); params+=(fv,)
@@ -1315,15 +1349,16 @@ def _sayfa_personel():
         sec = st.multiselect("Vardiya Günleri",GUNLER_TR,default=["Pazartesi","Çarşamba","Cuma"],key="p_vg")
         gun_json = json.dumps([GUNLER_TR.index(x) for x in sec])
         durum = st.selectbox("Durum",PERSONEL_DURUM,key="p_durum"); is_kal = st.slider("İş Kalitesi",1,5,3,key="p_ik")
+        ucret = st.number_input("Saatlik Ücret (TL)", value=100.0, key="p_ucret")
         pn = st.text_area("Performans Notu",key="p_not")
         if btn("Kaydet",key="btn_pk",caption="Yeni personeli ekler"):
             if not ad or not soyad: st.error("Ad soyad zorunlu")
             else:
                 try:
-                    sql_run("INSERT INTO personel(ad,soyad,gemi_id,gemi_id_list,makine_tipi_id,makine_tipi_id_list,vardiya_tipi,vardiya_gunleri,durum,is_kalitesi,performans_notu) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                    sql_run("INSERT INTO personel(ad,soyad,gemi_id,gemi_id_list,makine_tipi_id,makine_tipi_id_list,vardiya_tipi,vardiya_gunleri,durum,is_kalitesi,performans_notu,saatlik_ucret) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                             (ad.strip().upper(),soyad.strip().upper(),gem_list[0] if gem_list else None,_gemi_id_json(gem_list),
                              mak_sec[0] if mak_sec else None,_makine_id_json(mak_sec) if mak_sec else "[]",
-                             vt,gun_json,durum,is_kal,pn.strip() or None))
+                             vt,gun_json,durum,is_kal,pn.strip() or None, ucret))
                     st.toast("Personel kaydedildi!"); st.rerun()
                 except Exception as e: st.error(f"Hata: {e}")
     with st.expander("✏️ Düzenle / Sil & Sertifika"):
@@ -1349,13 +1384,14 @@ def _sayfa_personel():
         gids = _id_listesi(mev.get("gemi_id_list")) or ([mev["gemi_id"]] if mev.get("gemi_id") else [])
         ygem = st.multiselect("Gemi",[r["id"] for r in gemiler],default=[g for g in gids if g in [r["id"] for r in gemiler]],format_func=lambda i:next(r["ad"] for r in gemiler if r["id"]==i),key="pd_gem")
         ydurum = st.selectbox("Durum",PERSONEL_DURUM,index=PERSONEL_DURUM.index(mev["durum"]) if mev.get("durum") in PERSONEL_DURUM else 0,key="pd_durum")
+        yucret = st.number_input("Saatlik Ücret (TL)", value=mev.get("saatlik_ucret") or 100.0, key="pd_ucret")
         ypn = st.text_area("Performans Notu",value=mev.get("performans_notu") or "",key="pd_pn")
         cu, cs = st.columns(2)
         if cu.button("Güncelle",key="bpgu"):
             st.caption("Bilgileri günceller")
             try:
-                sql_run("UPDATE personel SET vardiya_tipi=?,makine_tipi_id_list=?,makine_tipi_id=?,gemi_id=?,gemi_id_list=?,durum=?,performans_notu=?,vardiya_gunleri=? WHERE id=?",
-                        (yvt,_makine_id_json(ymak) if ymak else "[]",ymak[0] if ymak else None,ygem[0] if ygem else None,_gemi_id_json(ygem),ydurum,ypn.strip() or None,ygunler_json,pid))
+                sql_run("UPDATE personel SET vardiya_tipi=?,makine_tipi_id_list=?,makine_tipi_id=?,gemi_id=?,gemi_id_list=?,durum=?,performans_notu=?,vardiya_gunleri=?,saatlik_ucret=? WHERE id=?",
+                        (yvt,_makine_id_json(ymak) if ymak else "[]",ymak[0] if ymak else None,ygem[0] if ygem else None,_gemi_id_json(ygem),ydurum,ypn.strip() or None,ygunler_json,yucret,pid))
                 st.toast("Güncellendi!"); st.rerun()
             except Exception as e: st.error(f"Hata: {e}")
         if cs.button("Sil",key="bps"):
@@ -1375,8 +1411,8 @@ def _sayfa_personel():
                 st.toast("Sertifika eklendi!"); st.rerun()
     if rows:
         st.markdown("#### 📋 Personel Listesi")
-        st.dataframe(pd.DataFrame(rows)[["ad","soyad","gemi","vardiya_tipi","durum","is_kalitesi"]].rename(
-            columns={"ad":"Ad","soyad":"Soyad","gemi":"Gemi","vardiya_tipi":"Vardiya","durum":"Durum","is_kalitesi":"Kalite"}
+        st.dataframe(pd.DataFrame(rows)[["ad","soyad","gemi","vardiya_tipi","durum","is_kalitesi","saatlik_ucret"]].rename(
+            columns={"ad":"Ad","soyad":"Soyad","gemi":"Gemi","vardiya_tipi":"Vardiya","durum":"Durum","is_kalitesi":"Kalite","saatlik_ucret":"Ücret"}
         ), use_container_width=True)
 
 def _sayfa_izin():
@@ -1523,6 +1559,216 @@ def _sayfa_carkci():
     else:
         st.info("Henüz çarkçı kaydı yok.")
 
+def _sayfa_takas():
+    st.subheader("🔁 Vardiya Takas Talebi")
+    st.info("İki personel arasında vardiya değişikliği talebi oluşturun. Yönetici onayı gereklidir.")
+    personeller = sql_all("SELECT id,ad,soyad FROM personel WHERE aktif=1 ORDER BY ad")
+    if len(personeller) < 2:
+        st.warning("En az 2 aktif personel gerekli.")
+        return
+    with st.expander("➕ Yeni Takas Talebi Oluştur", expanded=True):
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("**Talep Eden**")
+            talep_eden = st.selectbox("Personel", personeller, format_func=lambda p: f"{p['ad']} {p['soyad']}", key="takas_talep_eden")
+            talep_eden_tarih = st.date_input("Kendi vardiya tarihi", value=date.today(), key="takas_talep_eden_tarih")
+            te_vardiya = sql_one("""SELECT g.ad AS gemi, m.ad AS makine, v.baslangic_saat, v.bitis_saat FROM vardiya_plan v JOIN gemi g ON v.gemi_id=g.id JOIN makine_tipi m ON v.makine_tipi_id=m.id WHERE v.personel_id=? AND v.tarih=?""", (talep_eden["id"], talep_eden_tarih.isoformat()))
+            if te_vardiya:
+                st.success(f"📋 {te_vardiya['gemi']} / {te_vardiya['makine']} ({te_vardiya['baslangic_saat']}–{te_vardiya['bitis_saat']})")
+            else:
+                st.warning("Bu tarihte vardiyası yok.")
+        with c2:
+            st.markdown("**Karşı Personel**")
+            diger_personeller = [p for p in personeller if p["id"] != talep_eden["id"]]
+            karsi = st.selectbox("Personel", diger_personeller, format_func=lambda p: f"{p['ad']} {p['soyad']}", key="takas_karsi")
+            karsi_tarih = st.date_input("Karşı vardiya tarihi", value=date.today(), key="takas_karsi_tarih")
+            karsi_vardiya = sql_one("""SELECT g.ad AS gemi, m.ad AS makine, v.baslangic_saat, v.bitis_saat FROM vardiya_plan v JOIN gemi g ON v.gemi_id=g.id JOIN makine_tipi m ON v.makine_tipi_id=m.id WHERE v.personel_id=? AND v.tarih=?""", (karsi["id"], karsi_tarih.isoformat()))
+            if karsi_vardiya:
+                st.success(f"📋 {karsi_vardiya['gemi']} / {karsi_vardiya['makine']} ({karsi_vardiya['baslangic_saat']}–{karsi_vardiya['bitis_saat']})")
+            else:
+                st.warning("Bu tarihte vardiyası yok.")
+        notlar = st.text_area("Açıklama / Not", key="takas_notlar", height=60)
+        if btn("📤 Talep Gönder", key="takas_gonder", caption="Takas talebini oluşturur", help_text="Yöneticinin onaylaması için takas talebi oluşturur."):
+            if not te_vardiya:
+                st.error("Talep eden personelin seçili tarihte vardiyası yok!")
+            elif not karsi_vardiya:
+                st.error("Karşı personelin seçili tarihte vardiyası yok!")
+            elif talep_eden["id"] == karsi["id"]:
+                st.error("Aynı personel seçilemez!")
+            else:
+                sql_run("INSERT INTO vardiya_takas(talep_eden_id,karsi_personel_id,talep_eden_tarih,karsi_tarih,notlar,olusturma_tarihi) VALUES(?,?,?,?,?,?)",
+                        (talep_eden["id"], karsi["id"], talep_eden_tarih.isoformat(), karsi_tarih.isoformat(), notlar or None, datetime.now().isoformat()))
+                audit_log("takas","talep",f"{talep_eden['id']}<->{karsi['id']}")
+                st.success("✅ Takas talebi oluşturuldu! Yönetici onayı bekleniyor.")
+                st.rerun()
+    st.divider()
+    st.markdown("#### 📋 Bekleyen Takas Talepleri")
+    talepler = sql_all("""SELECT t.id, t.durum, t.talep_eden_tarih, t.karsi_tarih, t.notlar, t.olusturma_tarihi, p1.ad||' '||p1.soyad AS talep_eden, p2.ad||' '||p2.soyad AS karsi FROM vardiya_takas t JOIN personel p1 ON t.talep_eden_id=p1.id JOIN personel p2 ON t.karsi_personel_id=p2.id ORDER BY t.olusturma_tarihi DESC LIMIT 50""")
+    if not talepler:
+        st.info("Henüz takas talebi yok.")
+        return
+    for t in talepler:
+        durum_rengi = {"Beklemede":"🟡","Onaylandı":"🟢","Reddedildi":"🔴"}.get(t["durum"],"⚪")
+        with st.expander(f"{durum_rengi} #{t['id']} — {t['talep_eden']} ↔ {t['karsi']} | {t['talep_eden_tarih']} ↔ {t['karsi_tarih']}", expanded=(t["durum"] == "Beklemede")):
+            st.write(f"**Durum:** {t['durum']}")
+            st.write(f"**Oluşturma:** {t['olusturma_tarihi'][:16]}")
+            if t["notlar"]: st.write(f"**Not:** {t['notlar']}")
+            if t["durum"] == "Beklemede":
+                col_o, col_r, col_s = st.columns(3)
+                with col_o:
+                    if btn("✅ Onayla", key=f"takas_onayla_{t['id']}", caption="", help_text="Takas talebini onaylar ve vardiyaları değiştirir"):
+                        te_v = sql_one("""SELECT v.id FROM vardiya_plan v JOIN vardiya_takas tk ON v.personel_id=tk.talep_eden_id WHERE tk.id=? AND v.tarih=tk.talep_eden_tarih""", (t["id"],))
+                        ka_v = sql_one("""SELECT v.id FROM vardiya_plan v JOIN vardiya_takas tk ON v.personel_id=tk.karsi_personel_id WHERE tk.id=? AND v.tarih=tk.karsi_tarih""", (t["id"],))
+                        tk_row = sql_one("SELECT * FROM vardiya_takas WHERE id=?", (t["id"],))
+                        if te_v and ka_v and tk_row:
+                            try:
+                                sql_run("UPDATE vardiya_plan SET personel_id=? WHERE id=?", (tk_row["karsi_personel_id"], te_v["id"]))
+                                sql_run("UPDATE vardiya_plan SET personel_id=? WHERE id=?", (tk_row["talep_eden_id"], ka_v["id"]))
+                                sql_run("UPDATE vardiya_takas SET durum='Onaylandı' WHERE id=?", (t["id"],))
+                                audit_log("takas","onayla",f"id:{t['id']}")
+                                st.toast("✅ Takas gerçekleştirildi!"); st.rerun()
+                            except Exception as e:
+                                st.error(f"Hata: {e}")
+                        else:
+                            st.error("Vardiya bulunamadı, takas yapılamadı.")
+                with col_r:
+                    if btn("❌ Reddet", key=f"takas_reddet_{t['id']}", caption="", help_text="Talebi reddeder"):
+                        sql_run("UPDATE vardiya_takas SET durum='Reddedildi' WHERE id=?", (t["id"],))
+                        st.toast("❌ Talep reddedildi."); st.rerun()
+                with col_s:
+                    if btn("🗑️ Sil", key=f"takas_sil_{t['id']}", caption="", help_text="Talebi tamamen siler", type="secondary"):
+                        sql_run("DELETE FROM vardiya_takas WHERE id=?", (t["id"],))
+                        st.rerun()
+
+def _sayfa_analitik():
+    st.subheader("📊 Analitik & Raporlar")
+    if not PLOTLY_AVAILABLE:
+        st.error("Analitik için `pip install plotly` çalıştırın.")
+        return
+    bugun = date.today()
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "⚖️ Personel Yük Dengesi",
+        "🚢 Gemi Doluluk Oranı",
+        "⏰ Fazla Mesai Takibi",
+        "⚠️ Çakışma Raporu",
+    ])
+    with tab1:
+        st.markdown("#### Bu Ay Çalışma Günleri")
+        ay_bas  = date(bugun.year, bugun.month, 1)
+        ay_bitis = bugun
+        yukler = sql_all(
+            """SELECT p.ad||' '||p.soyad AS personel, p.vardiya_tipi,
+                      COUNT(DISTINCT v.tarih) AS gun_sayisi
+               FROM personel p
+               LEFT JOIN vardiya_plan v ON v.personel_id=p.id
+                   AND v.tarih BETWEEN ? AND ?
+               WHERE p.aktif=1
+               GROUP BY p.id
+               ORDER BY gun_sayisi DESC""",
+            (ay_bas.isoformat(), ay_bitis.isoformat()),
+        )
+        if not yukler:
+            st.info("Henüz veri yok.")
+        else:
+            df_yuk = pd.DataFrame(yukler)
+            ort = df_yuk["gun_sayisi"].mean()
+            df_yuk["sapma"] = df_yuk["gun_sayisi"] - ort
+            df_yuk["renk"]  = df_yuk["sapma"].apply(lambda x: "#e74c3c" if x > 3 else ("#f39c12" if x > 1 else "#2ecc71"))
+            fig = go.Figure(go.Bar(x=df_yuk["personel"], y=df_yuk["gun_sayisi"], marker_color=df_yuk["renk"].tolist(), text=df_yuk["gun_sayisi"], textposition="outside"))
+            fig.add_hline(y=ort, line_dash="dash", line_color="#aaa", annotation_text=f"Ort: {ort:.1f} gün", annotation_position="top right")
+            fig.update_layout(title=f"{AY_ADLARI[bugun.month]} {bugun.year} — Personel Başına Çalışma Günü", plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", font_color="#ddd", height=420)
+            st.plotly_chart(fig, use_container_width=True)
+            df_yuk["durum"] = df_yuk["sapma"].apply(lambda x: "🔴 Aşırı yüklü" if x > 3 else ("🟡 Fazla" if x > 1 else "🟢 Dengeli"))
+            st.dataframe(df_yuk[["personel","vardiya_tipi","gun_sayisi","durum"]].rename(columns={"personel":"Ad Soyad","vardiya_tipi":"Vardiya","gun_sayisi":"Gün","durum":"Durum"}), use_container_width=True)
+    with tab2:
+        st.markdown("#### Son 30 Günlük Gemi Doluluk Oranı")
+        bas_30 = bugun - timedelta(days=29)
+        poz_sayisi = sql_all("""SELECT g.ad AS gemi, COUNT(gm.makine_tipi_id) AS toplam_poz FROM gemi g LEFT JOIN gemi_makine gm ON gm.gemi_id=g.id GROUP BY g.id""")
+        poz_map = {r["gemi"]: r["toplam_poz"] for r in poz_sayisi}
+        doluluk_data = sql_all("""SELECT g.ad AS gemi, v.tarih, COUNT(*) AS atama FROM vardiya_plan v JOIN gemi g ON v.gemi_id=g.id WHERE v.tarih BETWEEN ? AND ? GROUP BY g.id, v.tarih""", (bas_30.isoformat(), bugun.isoformat()))
+        if not doluluk_data:
+            st.info("Son 30 günde veri yok.")
+        else:
+            df_dol = pd.DataFrame(doluluk_data)
+            df_dol["doluluk_oran"] = df_dol.apply(lambda r: round(r["atama"] / max(poz_map.get(r["gemi"],1),1) * 100, 1), axis=1)
+            fig2 = px.line(df_dol, x="tarih", y="doluluk_oran", color="gemi", title="Gemi Bazlı Günlük Doluluk Oranı (%)", markers=True)
+            fig2.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", font_color="#ddd", yaxis_range=[0,110], height=400)
+            st.plotly_chart(fig2, use_container_width=True)
+            ort_dol = df_dol.groupby("gemi")["doluluk_oran"].mean().reset_index()
+            ort_dol.columns = ["Gemi","Ort. Doluluk (%)"]
+            ort_dol["Ort. Doluluk (%)"] = ort_dol["Ort. Doluluk (%)"].round(1)
+            st.dataframe(ort_dol, use_container_width=True)
+    with tab3:
+        st.markdown("#### Bu Hafta Fazla Mesai Durumu")
+        ayar     = st.session_state.get("ayarlar", DEFAULT_AYARLAR)
+        max_saat = ayar.get("max_haftalik_saat", 45)
+        hafta_basi = bugun - timedelta(days=bugun.weekday())
+        hafta_son  = hafta_basi + timedelta(days=6)
+        haftalik = sql_all(
+            """SELECT p.ad||' '||p.soyad AS personel, p.vardiya_tipi,
+                      SUM(CASE WHEN CAST(SUBSTR(v.bitis_saat,1,2) AS INTEGER)*60 + CAST(SUBSTR(v.bitis_saat,4,2) AS INTEGER)
+                               > CAST(SUBSTR(v.baslangic_saat,1,2) AS INTEGER)*60 + CAST(SUBSTR(v.baslangic_saat,4,2) AS INTEGER)
+                             THEN (CAST(SUBSTR(v.bitis_saat,1,2) AS INTEGER)*60 + CAST(SUBSTR(v.bitis_saat,4,2) AS INTEGER))
+                                - (CAST(SUBSTR(v.baslangic_saat,1,2) AS INTEGER)*60 + CAST(SUBSTR(v.baslangic_saat,4,2) AS INTEGER))
+                             ELSE (CAST(SUBSTR(v.bitis_saat,1,2) AS INTEGER)*60 + CAST(SUBSTR(v.bitis_saat,4,2) AS INTEGER))
+                                - (CAST(SUBSTR(v.baslangic_saat,1,2) AS INTEGER)*60 + CAST(SUBSTR(v.baslangic_saat,4,2) AS INTEGER)) + 1440
+                        END) / 60.0 AS toplam_saat
+               FROM personel p
+               JOIN vardiya_plan v ON v.personel_id=p.id
+               WHERE v.tarih BETWEEN ? AND ? AND p.aktif=1
+               GROUP BY p.id
+               HAVING toplam_saat > 0
+               ORDER BY toplam_saat DESC""",
+            (hafta_basi.isoformat(), hafta_son.isoformat()),
+        )
+        if not haftalik:
+            st.info("Bu hafta henüz vardiya verisi yok.")
+        else:
+            df_mesai = pd.DataFrame(haftalik)
+            df_mesai["fazla_mesai"] = (df_mesai["toplam_saat"] - max_saat).clip(lower=0).round(1)
+            df_mesai["durum"] = df_mesai["toplam_saat"].apply(lambda s: "🔴 Limit Aşıldı" if s > max_saat else ("🟡 Limite Yakın" if s > max_saat * 0.85 else "🟢 Normal"))
+            colors = df_mesai["toplam_saat"].apply(lambda s: "#e74c3c" if s > max_saat else ("#f39c12" if s > max_saat * 0.85 else "#3498db")).tolist()
+            fig3 = go.Figure(go.Bar(x=df_mesai["personel"], y=df_mesai["toplam_saat"], marker_color=colors, text=df_mesai["toplam_saat"].round(1), textposition="outside"))
+            fig3.add_hline(y=max_saat, line_dash="dash", line_color="#e74c3c", annotation_text=f"Limit: {max_saat}h", annotation_position="top right")
+            fig3.update_layout(title=f"Haftalık Çalışma Saati (Limit: {max_saat}h)", plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", font_color="#ddd", height=400)
+            st.plotly_chart(fig3, use_container_width=True)
+            st.dataframe(df_mesai[["personel","vardiya_tipi","toplam_saat","fazla_mesai","durum"]].rename(columns={"personel":"Ad Soyad","vardiya_tipi":"Vardiya","toplam_saat":"Toplam Saat","fazla_mesai":"Fazla Mesai (h)","durum":"Durum"}), use_container_width=True)
+            fazla = df_mesai[df_mesai["toplam_saat"] > max_saat]
+            if not fazla.empty:
+                st.warning(f"⚠️ **{len(fazla)} personel** bu hafta {max_saat} saati aştı!")
+    with tab4:
+        st.markdown("#### Üst Üste Çalışma & Çakışma Analizi")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            cap_bas = st.date_input("Başlangıç", value=bugun - timedelta(days=14), key="cap_bas")
+        with col_b:
+            cap_bit = st.date_input("Bitiş", value=bugun, key="cap_bit")
+        if btn("🔍 Raporu Oluştur", key="cap_rapor", caption="Seçili aralıkta üst üste çalışanları listeler", help_text="Ardışık günlerde aynı personelin farklı gemilerde çalışmasını tespit eder."):
+            ust_uste_data = sql_all(
+                """SELECT v1.personel_id, p.ad||' '||p.soyad AS personel, p.vardiya_tipi,
+                          v1.tarih AS gun1, v2.tarih AS gun2, g1.ad AS gemi1, g2.ad AS gemi2
+                   FROM vardiya_plan v1
+                   JOIN vardiya_plan v2 ON v1.personel_id=v2.personel_id AND DATE(v2.tarih) = DATE(v1.tarih, '+1 day')
+                   JOIN personel p ON v1.personel_id=p.id
+                   JOIN gemi g1 ON v1.gemi_id=g1.id
+                   JOIN gemi g2 ON v2.gemi_id=g2.id
+                   WHERE v1.tarih BETWEEN ? AND ?
+                   ORDER BY v1.personel_id, v1.tarih""",
+                (cap_bas.isoformat(), cap_bit.isoformat()),
+            )
+            if ust_uste_data:
+                st.warning(f"**{len(ust_uste_data)} ardışık çalışma** tespit edildi:")
+                df_uu = pd.DataFrame(ust_uste_data)[["personel","vardiya_tipi","gun1","gun2","gemi1","gemi2"]]
+                df_uu.columns = ["Personel","Vardiya","Gün 1","Gün 2","Gemi 1","Gemi 2"]
+                st.dataframe(df_uu, use_container_width=True)
+                ozet = df_uu.groupby("Personel").size().reset_index(name="Ardışık Çift Sayısı")
+                ozet = ozet.sort_values("Ardışık Çift Sayısı", ascending=False)
+                fig4 = px.bar(ozet, x="Personel", y="Ardışık Çift Sayısı", title="Personel Başına Ardışık Çalışma Sayısı", color="Ardışık Çift Sayısı", color_continuous_scale=["#2ecc71","#f39c12","#e74c3c"])
+                fig4.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", font_color="#ddd", height=380)
+                st.plotly_chart(fig4, use_container_width=True)
+            else:
+                st.success("✅ Seçili aralıkta ardışık çalışma tespit edilmedi.")
+
 def _sayfa_bilgi():
     st.subheader("📊 Bilgi & Rapor")
     c1,c2,c3 = st.columns(3)
@@ -1536,15 +1782,13 @@ def _sayfa_bilgi():
     with cb2:
         st.markdown("#### Test Verisi")
         onay = st.checkbox("Tüm mevcut verileri silmek istiyorum", key="test_sil_onay")
-        if btn("🧪 Test Verisi Oluştur (Silerek)", key="btest_sil", caption="Önce tüm verileri siler, sonra test verisi ekler",
-               help_text="Dikkat: Mevcut tüm kayıtlar silinecektir."):
+        if btn("🧪 Test Verisi Oluştur (Silerek)", key="btest_sil", caption="Önce tüm verileri siler, sonra test verisi ekler", help_text="Dikkat: Mevcut tüm kayıtlar silinecektir."):
             if not onay:
                 st.error("Lütfen silme onayını işaretleyin.")
             else:
                 test_verisi_olustur(sil=True)
                 st.rerun()
-        if btn("🧪 Test Verisi Ekle (Silmeden)", key="btest_ekle", caption="Mevcut verilere test verisi ekler",
-               help_text="Mevcut veriler korunur, yeni test kayıtları eklenir."):
+        if btn("🧪 Test Verisi Ekle (Silmeden)", key="btest_ekle", caption="Mevcut verilere test verisi ekler", help_text="Mevcut veriler korunur, yeni test kayıtları eklenir."):
             test_verisi_olustur(sil=False)
             st.rerun()
     with cb3:
@@ -1609,7 +1853,7 @@ def main():
 
     with st.sidebar:
         st.title("⚓ Ordino")
-        st.caption("v8.5")
+        st.caption("v9.0")
         st.markdown("---")
         uyarilar = sertifika_uyarilari_al()
         if uyarilar:
@@ -1625,6 +1869,7 @@ def main():
             st.info(f"🔁 {bekleyen_takas['c']} bekleyen takas talebi")
 
     tabs = st.tabs([
+        "🏠 Dashboard",
         "🧩 Yapboz",
         "📅 Takvim",
         "⚡ Acil",
@@ -1632,22 +1877,31 @@ def main():
         "👷 Personel",
         "📅 İzin",
         "✦ Öneri",
+        "📋 Şablon",
+        "📥 İçe Aktar",
         "🔁 Takas",
         "📊 Analitik",
+        "📈 Performans",
+        "💰 Bütçe",
         "📋 Bilgi",
         "⚙️ Ayarlar",
     ])
-    with tabs[0]: _sayfa_yapboz()
-    with tabs[1]: _sayfa_takvim()
-    with tabs[2]: _sayfa_acil()
-    with tabs[3]: _sayfa_excel()
-    with tabs[4]: _sayfa_personel()
-    with tabs[5]: _sayfa_izin()
-    with tabs[6]: _sayfa_oneri()
-    with tabs[7]: _sayfa_takas()
-    with tabs[8]: _sayfa_analitik()
-    with tabs[9]: _sayfa_bilgi()
-    with tabs[10]: ayarlar_sayfasi()
+    with tabs[0]: _sayfa_dashboard()
+    with tabs[1]: _sayfa_yapboz()
+    with tabs[2]: _sayfa_takvim()
+    with tabs[3]: _sayfa_acil()
+    with tabs[4]: _sayfa_excel()
+    with tabs[5]: _sayfa_personel()
+    with tabs[6]: _sayfa_izin()
+    with tabs[7]: _sayfa_oneri()
+    with tabs[8]: _sayfa_sablon()
+    with tabs[9]: _sayfa_import()
+    with tabs[10]: _sayfa_takas()
+    with tabs[11]: _sayfa_analitik()
+    with tabs[12]: _sayfa_performans()
+    with tabs[13]: _sayfa_butce()
+    with tabs[14]: _sayfa_bilgi()
+    with tabs[15]: ayarlar_sayfasi()
 
 if __name__ == "__main__":
     main()
