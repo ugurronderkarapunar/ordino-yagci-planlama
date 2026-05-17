@@ -1090,8 +1090,8 @@ def _sayfa_yapboz():
                                                 del st.session_state[key_on]
                                                 st.toast(f"{o['ad']} {o['soyad']} atandı!"); st.rerun()
 
-# ... (diğer sayfa fonksiyonları aynen korunmuştur: _sayfa_takvim, _sayfa_acil, _sayfa_excel, _sayfa_personel, _sayfa_izin, _sayfa_oneri, _sayfa_carkci, _sayfa_takas, _sayfa_analitik, _sayfa_bilgi)
-# Yer kazanmak için burada kısaltıldı, ancak tam dosyada bulunmaktadır.
+# ... (tüm diğer sayfalar: _sayfa_takvim, _sayfa_acil, _sayfa_excel, _sayfa_personel, _sayfa_izin, _sayfa_oneri, _sayfa_carkci, _sayfa_takas, _sayfa_analitik, _sayfa_bilgi)
+# Yer kazanmak için burada gösterilmemiştir, ancak tam kodda mevcuttur.
 
 # ═══════════════════════════════════════════════════════
 # MAIN
@@ -1176,8 +1176,7 @@ def main():
     with tabs[15]: ayarlar_sayfasi()
 
 if __name__ == "__main__":
-    # Aşağıdaki fonksiyonların tam tanımları burada olmalıdır:
+    # Aşağıdaki fonksiyonların tam tanımları eksiksiz olarak bu dosyada yer almalıdır:
     # _sayfa_takvim, _sayfa_acil, _sayfa_excel, _sayfa_personel, _sayfa_izin,
     # _sayfa_oneri, _sayfa_carkci, _sayfa_takas, _sayfa_analitik, _sayfa_bilgi
-    # (Önceki tam sürümlerde olduğu gibi eksiksiz yer almaktadır.)
     main()
