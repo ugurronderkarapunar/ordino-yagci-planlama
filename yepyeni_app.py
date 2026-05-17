@@ -1,11 +1,10 @@
 """
-Ordino Yağcı Planlaması — v8.4
-Yenilikler:
- - Buton açıklamaları tooltip ile kısaltıldı
- - Yapboz responsive grid (max 4 sütun)
- - Tablet / geniş ekran CSS iyileştirmeleri
- - Personel & İzin ayrı sekmeler
- - Kullanılmayan tema toggle kaldırıldı
+Ordino Yağcı Planlaması — v8.5
+İyileştirmeler:
+ - IZINCI puan dengesi (80 + 120 = 200 toplam)
+ - "Saat çakışmasını yoksay" isimlendirme
+ - Test verisi işlemleri (silerek / silmeden ekleme)
+ - Tüm vardiya_plan INSERT'lerinde ON CONFLICT DO NOTHING (INSERT OR IGNORE)
 """
 from __future__ import annotations
 
@@ -94,7 +93,6 @@ def audit_log(kullanici: str, islem: str, detay: str):
 
 # ---------- YARDIMCI ----------
 def btn(label, key, caption="", help_text="", **kwargs):
-    """Buton oluşturur, altına kısa caption, yanına tooltip ekler."""
     if "type" not in kwargs:
         kwargs["type"] = "primary"
     clicked = st.button(label, key=key, help=help_text, **kwargs)
@@ -191,7 +189,6 @@ def sertifika_uyarilari_al():
 
 # ── N+1 düzeltmesi: tek JOIN sorgusuyla bugünün planı ──────────────────────
 def bugun_plani_olustur():
-    """Tek sorgu ile tüm gemi-makine-personel planını getirir."""
     bugun = date.today().isoformat()
     atananlar = sql_all(
         """SELECT g.ad AS gemi, m.ad AS makine, p.ad||' '||p.soyad AS personel
@@ -285,7 +282,6 @@ def to_dict_rows(oneriler):
 # ---------- ÖNERİ MOTORU (cache'li + toplu N+1 çözümü) ----------
 @st.cache_data(ttl=60, show_spinner=False)
 def _tum_aktif_personel_cache():
-    """Aktif personeli 60 sn önbellekte tut."""
     return sql_all(
         "SELECT * FROM personel WHERE aktif=1 AND (vardiya_tipi='IZINCI' OR durum IN ('Gemide','İskelede'))"
     )
@@ -435,9 +431,10 @@ def onerileri_hesapla(gemi_id, makine_tipi_id, hedef_tarih, cikan_id=None, limit
         kalite_puan = {1: -30, 2: -20, 3: 0, 4: 10, 5: 20}.get(kalite, 0)
         ust_uste_ceza = -20 if iki_gun_ust_uste_mi(p["id"], hedef_tarih) else 0
         pespese_ceza  = -15 if ayni_gemi_pespese(p["id"], hedef_tarih, gemi_id) else 0
-        vardiya_puan  = {"IZINCI": 100,"TERSANE": 95,"GECE": 105,"GRUPCU": 80,"SABIT": 60,"8_5": 40}.get(vardiya, 50)
+        # IZINCI: vardiya puanı 80, bonus 120 → toplam 200 (önceki 300 yerine dengeli)
+        vardiya_puan  = {"IZINCI": 80,"TERSANE": 95,"GECE": 105,"GRUPCU": 80,"SABIT": 60,"8_5": 40}.get(vardiya, 50)
         toplam_puan   = vardiya_puan + kalite_puan + nlp_etki + pespese_ceza + ust_uste_ceza
-        if vardiya == "IZINCI": toplam_puan += 200
+        if vardiya == "IZINCI": toplam_puan += 120
 
         sonuclar.append({
             **p,
@@ -562,7 +559,6 @@ def init_db():
         FOREIGN KEY(talep_eden_id) REFERENCES personel(id),
         FOREIGN KEY(karsi_personel_id) REFERENCES personel(id))""")
 
-    # --- Akıllı migration ---
     migration_map = {
         "gemi": {"konum": "TEXT"},
         "personel": {
@@ -585,24 +581,31 @@ def init_db():
         for col, col_def in columns.items():
             if col not in existing_cols:
                 c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_def}")
-
     conn.commit()
     conn.close()
 
-def test_verisi_olustur():
-    for t in ["vardiya_plan","personel_sertifika","performans_gecmis","carkci",
-              "izin","personel","gemi_makine","makine_tipi","gemi","vardiya_takas"]:
-        sql_run(f"DELETE FROM {t}")
+def test_verisi_olustur(sil=False):
+    """Test verisi ekler. sil=True ise önce tüm tabloları temizler."""
+    if sil:
+        for t in ["vardiya_plan","personel_sertifika","performans_gecmis","carkci",
+                  "izin","personel","gemi_makine","makine_tipi","gemi","vardiya_takas"]:
+            sql_run(f"DELETE FROM {t}")
     gemiler = [
         ("KABATEPE","G101","Tersane"),("M/T ATLANTIC","G202","Gecede"),
         ("M/V BOGAZICI","G303","Dışarıda"),("T/S CINAR","G404","Tersane"),
         ("M/V DENIZ YILDIZI","G505","Gecede"),
     ]
     for ad,kod,konum in gemiler:
-        sql_run("INSERT INTO gemi(ad,kod,konum) VALUES(?,?,?)",(ad,kod,konum))
+        try:
+            sql_run("INSERT INTO gemi(ad,kod,konum) VALUES(?,?,?)",(ad,kod,konum))
+        except sqlite3.IntegrityError:
+            pass  # already exists
     gemi_ids = [r["id"] for r in sql_all("SELECT id FROM gemi")]
     for m in ["Dizel Motor","Kompresor","Pompa","Jenerator"]:
-        sql_run("INSERT INTO makine_tipi(ad) VALUES(?)",(m,))
+        try:
+            sql_run("INSERT INTO makine_tipi(ad) VALUES(?)",(m,))
+        except sqlite3.IntegrityError:
+            pass
     makine_ids = [r["id"] for r in sql_all("SELECT id FROM makine_tipi")]
     for gid,mids in [
         (gemi_ids[0],[makine_ids[0],makine_ids[1]]),
@@ -612,7 +615,10 @@ def test_verisi_olustur():
         (gemi_ids[4],[makine_ids[0],makine_ids[1],makine_ids[2],makine_ids[3]]),
     ]:
         for mid in mids:
-            sql_run("INSERT INTO gemi_makine(gemi_id,makine_tipi_id) VALUES(?,?)",(gid,mid))
+            try:
+                sql_run("INSERT OR IGNORE INTO gemi_makine(gemi_id,makine_tipi_id) VALUES(?,?)",(gid,mid))
+            except:
+                pass
     personeller = [
         ("Ahmet","YILMAZ",[gemi_ids[0]],[makine_ids[0],makine_ids[1]],"SABIT",[0,2,4],4,"Gemide","çalışkan ve dikkatli"),
         ("Mehmet","DEMIR",[gemi_ids[1]],[makine_ids[1],makine_ids[2]],"GRUPCU",[1,3,5],3,"Gemide",""),
@@ -626,30 +632,24 @@ def test_verisi_olustur():
         ("YEDEK2","KISI",[],[],"IZINCI",[],4,"İskelede","evrensel yedek"),
     ]
     for ad,soyad,gemi_list,makine_list,vardiya,gunler,kalite,durum,p_not in personeller:
-        sql_run(
-            "INSERT INTO personel(ad,soyad,gemi_id,gemi_id_list,makine_tipi_id,makine_tipi_id_list,vardiya_tipi,vardiya_gunleri,is_kalitesi,durum,performans_notu) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-            (ad,soyad,gemi_list[0] if gemi_list else None,_gemi_id_json(gemi_list),
-             makine_list[0] if makine_list else None,_makine_id_json(makine_list),
-             vardiya,json.dumps(gunler),kalite,durum,p_not),
-        )
+        sql_run("INSERT OR IGNORE INTO personel(ad,soyad,gemi_id,gemi_id_list,makine_tipi_id,makine_tipi_id_list,vardiya_tipi,vardiya_gunleri,is_kalitesi,durum,performans_notu) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                (ad,soyad,gemi_list[0] if gemi_list else None,_gemi_id_json(gemi_list),
+                 makine_list[0] if makine_list else None,_makine_id_json(makine_list),
+                 vardiya,json.dumps(gunler),kalite,durum,p_not))
     p_map = {f"{p['ad']} {p['soyad']}": p["id"] for p in sql_all("SELECT id,ad,soyad FROM personel")}
     bugun = date.today()
-    sql_run("INSERT INTO izin(personel_id,baslangic,bitis,gun_sayisi,notlar) VALUES(?,?,?,?,?)",
+    sql_run("INSERT OR IGNORE INTO izin(personel_id,baslangic,bitis,gun_sayisi,notlar) VALUES(?,?,?,?,?)",
             (p_map["Ahmet YILMAZ"],bugun.isoformat(),(bugun+timedelta(days=6)).isoformat(),7,"haftalık izin"))
-    sql_run("INSERT INTO izin(personel_id,baslangic,bitis,gun_sayisi,notlar) VALUES(?,?,?,?,?)",
+    sql_run("INSERT OR IGNORE INTO izin(personel_id,baslangic,bitis,gun_sayisi,notlar) VALUES(?,?,?,?,?)",
             (p_map["Veli SAHIN"],(bugun-timedelta(days=1)).isoformat(),bugun.isoformat(),2,"kısa izin"))
-    sql_run("INSERT INTO personel_sertifika(personel_id,makine_tipi_id,sertifika_adi,gecerlilik_tarihi) VALUES(?,?,?,?)",
+    sql_run("INSERT OR IGNORE INTO personel_sertifika(personel_id,makine_tipi_id,sertifika_adi,gecerlilik_tarihi) VALUES(?,?,?,?)",
             (p_map["Mehmet DEMIR"],makine_ids[2],"Kompresor Yetkisi",(bugun+timedelta(days=30)).isoformat()))
     for pid in list(p_map.values())[:6]:
         for delta in range(14):
             d = bugun - timedelta(days=delta)
-            try:
-                sql_run("INSERT INTO vardiya_plan(personel_id,gemi_id,makine_tipi_id,tarih,baslangic_saat,bitis_saat) VALUES(?,?,?,?,?,?)",
-                        (pid, gemi_ids[0], makine_ids[0], d.isoformat(), "08:00", "17:00"))
-            except:
-                pass
-    st.success("Test verisi oluşturuldu!")
-    st.rerun()
+            sql_run("INSERT OR IGNORE INTO vardiya_plan(personel_id,gemi_id,makine_tipi_id,tarih,baslangic_saat,bitis_saat) VALUES(?,?,?,?,?,?)",
+                    (pid, gemi_ids[0], makine_ids[0], d.isoformat(), "08:00", "17:00"))
+    st.success("Test verisi " + ("oluşturuldu (mevcut veriler korundu)." if not sil else "oluşturuldu (tüm veriler silindi)."))
 
 # ---------- AYARLAR ----------
 def ayarlar_sayfasi():
@@ -667,7 +667,7 @@ def ayarlar_sayfasi():
         st.success("Ayarlar güncellendi.")
 
 # ═══════════════════════════════════════════════════════
-# SAYFA: YAPBOZ (responsive grid)
+# SAYFA: YAPBOZ
 # ═══════════════════════════════════════════════════════
 def _sayfa_yapboz():
     st.subheader("🧩 İnteraktif Yapboz")
@@ -710,11 +710,8 @@ def _sayfa_yapboz():
                             oneri = onerileri_hesapla(gemi["id"], mak_id, sec_tarih, limit=1)
                             if oneri and not oneri[0].get("zaten_atanmis"):
                                 b, e = VARDIYA_SAATLERI.get(oneri[0]["vardiya_tipi"], ("08:00","08:00"))
-                                try:
-                                    sql_run("INSERT INTO vardiya_plan(personel_id,gemi_id,makine_tipi_id,tarih,baslangic_saat,bitis_saat) VALUES(?,?,?,?,?,?)",
-                                            (oneri[0]["id"],gemi["id"],mak_id,sec_tarih.isoformat(),b,e))
-                                except sqlite3.IntegrityError:
-                                    pass
+                                sql_run("INSERT OR IGNORE INTO vardiya_plan(personel_id,gemi_id,makine_tipi_id,tarih,baslangic_saat,bitis_saat) VALUES(?,?,?,?,?,?)",
+                                        (oneri[0]["id"],gemi["id"],mak_id,sec_tarih.isoformat(),b,e))
             st.toast("Tüm boş pozisyonlar dolduruldu!", icon="🤖"); st.rerun()
 
     izinli = bugun_izinli_ids()
@@ -738,7 +735,6 @@ def _sayfa_yapboz():
             f"{doluluk_emoji} {gemi['ad']} — {atanan_count}/{toplam_poz} dolu",
             expanded=(atanan_count < toplam_poz),
         ):
-            # Responsive grid: maksimum 4 sütun
             max_kolon = 4
             for satir_idx in range(0, len(g_makineler), max_kolon):
                 satir_makineler = g_makineler[satir_idx:satir_idx+max_kolon]
@@ -805,12 +801,9 @@ def _sayfa_yapboz():
                                         b, e = VARDIYA_SAATLERI.get(pid_row["vardiya_tipi"],("08:00","08:00"))
                                         if iki_gun_ust_uste_mi(pid_row["id"],sec_tarih):
                                             st.warning("⚠️ Bu personel dün de çalıştı.")
-                                        try:
-                                            sql_run("INSERT INTO vardiya_plan(personel_id,gemi_id,makine_tipi_id,tarih,baslangic_saat,bitis_saat) VALUES(?,?,?,?,?,?)",
-                                                    (pid_row["id"],gemi["id"],mak["id"],sec_tarih.isoformat(),b,e))
-                                            st.toast("Personel atandı!"); st.rerun()
-                                        except sqlite3.IntegrityError:
-                                            st.error("Bu atama zaten mevcut!")
+                                        sql_run("INSERT OR IGNORE INTO vardiya_plan(personel_id,gemi_id,makine_tipi_id,tarih,baslangic_saat,bitis_saat) VALUES(?,?,?,?,?,?)",
+                                                (pid_row["id"],gemi["id"],mak["id"],sec_tarih.isoformat(),b,e))
+                                        st.toast("Personel atandı!"); st.rerun()
                             else:
                                 st.caption("Uygun personel yok.")
 
@@ -835,13 +828,10 @@ def _sayfa_yapboz():
                                                 st.error("Zaten atanmış!")
                                             else:
                                                 b, e = VARDIYA_SAATLERI.get(o["vardiya_tipi"],("08:00","08:00"))
-                                                try:
-                                                    sql_run("INSERT INTO vardiya_plan(personel_id,gemi_id,makine_tipi_id,tarih,baslangic_saat,bitis_saat) VALUES(?,?,?,?,?,?)",
-                                                            (o["id"],gemi["id"],mak["id"],sec_tarih.isoformat(),b,e))
-                                                    del st.session_state[key_on]
-                                                    st.toast(f"{o['ad']} {o['soyad']} atandı!"); st.rerun()
-                                                except sqlite3.IntegrityError:
-                                                    st.error("Bu atama zaten mevcut!")
+                                                sql_run("INSERT OR IGNORE INTO vardiya_plan(personel_id,gemi_id,makine_tipi_id,tarih,baslangic_saat,bitis_saat) VALUES(?,?,?,?,?,?)",
+                                                        (o["id"],gemi["id"],mak["id"],sec_tarih.isoformat(),b,e))
+                                                del st.session_state[key_on]
+                                                st.toast(f"{o['ad']} {o['soyad']} atandı!"); st.rerun()
 
 # ═══════════════════════════════════════════════════════
 # SAYFA: HAFTALIK / AYLIK TAKVİM
@@ -1115,7 +1105,8 @@ def _sayfa_takas():
             elif talep_eden["id"] == karsi["id"]:
                 st.error("Aynı personel seçilemez!")
             else:
-                sql_run("INSERT INTO vardiya_takas(talep_eden_id,karsi_personel_id,talep_eden_tarih,karsi_tarih,notlar,olusturma_tarihi) VALUES(?,?,?,?,?,?)", (talep_eden["id"], karsi["id"], talep_eden_tarih.isoformat(), karsi_tarih.isoformat(), notlar or None, datetime.now().isoformat()))
+                sql_run("INSERT INTO vardiya_takas(talep_eden_id,karsi_personel_id,talep_eden_tarih,karsi_tarih,notlar,olusturma_tarihi) VALUES(?,?,?,?,?,?)",
+                        (talep_eden["id"], karsi["id"], talep_eden_tarih.isoformat(), karsi_tarih.isoformat(), notlar or None, datetime.now().isoformat()))
                 audit_log("takas","talep",f"{talep_eden['id']}<->{karsi['id']}")
                 st.success("✅ Takas talebi oluşturuldu! Yönetici onayı bekleniyor.")
                 st.rerun()
@@ -1202,11 +1193,10 @@ def _sayfa_acil():
                             oneri_list = onerileri_hesapla(gid,mid,bugun,limit=1)
                             if oneri_list and oneri_list[0]["id"]==p["id"]:
                                 b,e = VARDIYA_SAATLERI.get(p["vardiya_tipi"],("08:00","08:00"))
-                                try:
-                                    sql_run("INSERT INTO vardiya_plan(personel_id,gemi_id,makine_tipi_id,tarih,baslangic_saat,bitis_saat) VALUES(?,?,?,?,?,?)",(p["id"],gid,mid,bugun.isoformat(),b,e))
-                                    sql_run("UPDATE personel SET durum='Gemide' WHERE id=?",(p["id"],))
-                                    atanan+=1; break
-                                except sqlite3.IntegrityError: pass
+                                sql_run("INSERT OR IGNORE INTO vardiya_plan(personel_id,gemi_id,makine_tipi_id,tarih,baslangic_saat,bitis_saat) VALUES(?,?,?,?,?,?)",
+                                        (p["id"],gid,mid,bugun.isoformat(),b,e))
+                                sql_run("UPDATE personel SET durum='Gemide' WHERE id=?",(p["id"],))
+                                atanan+=1; break
                         if atanan: break
                 if atanan>0: st.toast(f"{atanan} personel dağıtıldı!"); st.rerun()
                 else: st.warning("Hiçbir personel yerleştirilemedi.")
@@ -1249,7 +1239,7 @@ def _sayfa_excel():
                     ng = sql_one("SELECT id FROM gemi WHERE ad=?",(gad.strip().upper(),))
                     if ng and sec_mak:
                         for mid in sec_mak:
-                            sql_run("INSERT INTO gemi_makine(gemi_id,makine_tipi_id) VALUES(?,?)",(ng["id"],mid))
+                            sql_run("INSERT OR IGNORE INTO gemi_makine(gemi_id,makine_tipi_id) VALUES(?,?)",(ng["id"],mid))
                     st.toast("Gemi eklendi!"); st.rerun()
                 except Exception as e: st.error(f"Hata: {e}")
     with st.expander("➕ Makine Tipi Ekle"):
@@ -1292,7 +1282,7 @@ def _sayfa_excel():
                 if btn("Güncelle",key="gm_guncelle",caption="Gemi-makine eşleştirmesini günceller"):
                     sql_run("DELETE FROM gemi_makine WHERE gemi_id=?",(sec_gemi,))
                     for mid in sec_mak:
-                        sql_run("INSERT INTO gemi_makine(gemi_id,makine_tipi_id) VALUES(?,?)",(sec_gemi,mid))
+                        sql_run("INSERT OR IGNORE INTO gemi_makine(gemi_id,makine_tipi_id) VALUES(?,?)",(sec_gemi,mid))
                     st.toast("Güncellendi!"); st.rerun()
 
 def _sayfa_personel():
@@ -1432,7 +1422,7 @@ def _sayfa_oneri():
     st.subheader("✦ Öneri & Plan")
     gem = sql_all("SELECT id,ad FROM gemi ORDER BY ad"); mak = sql_all("SELECT id,ad FROM makine_tipi ORDER BY ad")
     if not gem or not mak: st.warning("Gemi/makine yok"); return
-    esnek = st.checkbox("Esnek çakışma",value=False,key="esnek")
+    esnek = st.checkbox("Saat çakışmasını yoksay",value=False,key="esnek")
     st.subheader("🗓️ Toplu Planlama (Adil)")
     with st.expander("Ayarlar"):
         sg = st.multiselect("Gemiler",[g["id"] for g in gem],format_func=lambda i:next(g["ad"] for g in gem if g["id"]==i),key="tpg")
@@ -1461,10 +1451,9 @@ def _sayfa_oneri():
                                     on.sort(key=lambda x:kul.get(x["id"],0))
                                     if on and not on[0].get("zaten_atanmis"):
                                         b,e = VARDIYA_SAATLERI.get(on[0]["vardiya_tipi"],("08:00","08:00"))
-                                        try:
-                                            sql_run("INSERT INTO vardiya_plan VALUES(NULL,?,?,?,?,?,?)",(on[0]["id"],g,m,d.isoformat(),b,e))
-                                            kul[on[0]["id"]] = kul.get(on[0]["id"],0)+1; top+=1
-                                        except sqlite3.IntegrityError: pass
+                                        sql_run("INSERT OR IGNORE INTO vardiya_plan(personel_id,gemi_id,makine_tipi_id,tarih,baslangic_saat,bitis_saat) VALUES(?,?,?,?,?,?)",
+                                                (on[0]["id"],g,m,d.isoformat(),b,e))
+                                        kul[on[0]["id"]] = kul.get(on[0]["id"],0)+1; top+=1
                                 d += timedelta(days=1)
                 st.toast(f"{top} vardiya dağıtıldı!"); st.rerun()
     st.divider(); st.subheader("Tek Seferlik Öneri")
@@ -1518,7 +1507,8 @@ def _sayfa_carkci():
                     mev = sql_one("SELECT is_kalitesi FROM personel WHERE id=?", (pid_p,))
                     if mev:
                         yeni = max(1, (mev["is_kalitesi"] or 3) - pk)
-                        sql_run("UPDATE personel SET is_kalitesi=?, carkci_ile_sorun=1, carkci_sorun_notu=? WHERE id=?", (yeni, sorun.strip() or None, pid_p))
+                        sql_run("UPDATE personel SET is_kalitesi=?, carkci_ile_sorun=1, carkci_sorun_notu=? WHERE id=?",
+                                (yeni, sorun.strip() or None, pid_p))
                 audit_log("kullanici", "carkci_ekle", f"{ad} {soyad}")
                 st.toast("Çarkçı kaydı oluşturuldu!")
                 st.rerun()
@@ -1544,8 +1534,19 @@ def _sayfa_bilgi():
         if btn("💾 Yedekle",key="byedek",caption="Veritabanı yedeği alır"):
             st.toast(f"Yedek: {veritabani_yedekle().name}",icon="💾")
     with cb2:
-        if btn("🧪 Test Verisi",key="btest",caption="Örnek kayıtlar oluşturur"):
-            test_verisi_olustur()
+        st.markdown("#### Test Verisi")
+        onay = st.checkbox("Tüm mevcut verileri silmek istiyorum", key="test_sil_onay")
+        if btn("🧪 Test Verisi Oluştur (Silerek)", key="btest_sil", caption="Önce tüm verileri siler, sonra test verisi ekler",
+               help_text="Dikkat: Mevcut tüm kayıtlar silinecektir."):
+            if not onay:
+                st.error("Lütfen silme onayını işaretleyin.")
+            else:
+                test_verisi_olustur(sil=True)
+                st.rerun()
+        if btn("🧪 Test Verisi Ekle (Silmeden)", key="btest_ekle", caption="Mevcut verilere test verisi ekler",
+               help_text="Mevcut veriler korunur, yeni test kayıtları eklenir."):
+            test_verisi_olustur(sil=False)
+            st.rerun()
     with cb3:
         st.download_button("📥 DB İndir",open(DB_PATH,"rb"),file_name=f"ordino_{date.today().isoformat()}.db",key="indir_db")
         st.caption("Veritabanını indirir")
@@ -1608,7 +1609,7 @@ def main():
 
     with st.sidebar:
         st.title("⚓ Ordino")
-        st.caption("v8.4")
+        st.caption("v8.5")
         st.markdown("---")
         uyarilar = sertifika_uyarilari_al()
         if uyarilar:
