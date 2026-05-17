@@ -693,13 +693,15 @@ def _sayfa_yapboz():
     col1, col2 = st.columns(2)
     with col1:
         if btn("🧹 Tüm Atamaları Temizle", key="yapboz_temizle",
-               caption="Seçili tarihteki tüm vardiyaları siler", help_text="Tarihe ait tüm personel atamalarını kaldırır.", type="secondary"):
+               caption="Seçili tarihteki tüm vardiyaları siler",
+               help_text="Tarihe ait tüm personel atamalarını kaldırır.", type="secondary"):
             sql_run("DELETE FROM vardiya_plan WHERE tarih=?", (sec_tarih.isoformat(),))
             audit_log("kullanıcı","temizle",f"tarih:{sec_tarih.isoformat()}")
             st.toast("Tüm atamalar temizlendi!", icon="🧹"); st.rerun()
     with col2:
         if btn("🤖 Hepsini Otomatik Doldur", key="yapboz_otomatik",
-               caption="Sistemin önerdiği en uygun personelle boşlukları doldurur", help_text="Boş pozisyonları öneri motoru ile doldurur."):
+               caption="Sistemin önerdiği en uygun personelle boşlukları doldurur",
+               help_text="Boş pozisyonları öneri motoru ile doldurur."):
             with st.spinner("Otomatik dolduruluyor..."):
                 for gemi in gemiler:
                     for gm in sql_all("SELECT makine_tipi_id FROM gemi_makine WHERE gemi_id=?", (gemi["id"],)):
@@ -813,7 +815,8 @@ def _sayfa_yapboz():
                                 st.caption("Uygun personel yok.")
 
                             if btn("🔍 Öneri Al (5)", key=f"onerbtn_{gemi['id']}_{mak['id']}_{sec_tarih}",
-                                   caption="En uygun 5 personeli listeler", help_text="Öneri motoru ile en uygun 5 kişi"):
+                                   caption="En uygun 5 personeli listeler",
+                                   help_text="Öneri motoru ile en uygun 5 kişi"):
                                 st.session_state[f"oneriler_{gemi['id']}_{mak['id']}"] = \
                                     onerileri_hesapla(gemi["id"],mak["id"],sec_tarih,limit=5)
                                 st.rerun()
@@ -1269,7 +1272,7 @@ def _sayfa_excel():
             with c3: st.write(f"Konum: {gemi['konum'] or '-'}")
             with c4: st.write(f"Personel: {gemi['personel']}")
             with c5:
-                if btn("🗑️", key=f"sil_gemi_{gemi['id']}", caption="Gemiyi siler", help_text="Gemiyi ve bağlı kayıtları siler.", type="secondary"):
+                if btn("🗑️", key=f"sil_gemi_{gemi['id']}", caption="", help_text="Gemiyi ve bağlı kayıtları siler.", type="secondary"):
                     sql_run("DELETE FROM gemi WHERE id=?", (gemi['id'],))
                     audit_log("kullanıcı","gemi_sil",f"{gemi['ad']} (ID:{gemi['id']})")
                     st.toast(f"🗑️ {gemi['ad']} silindi!"); st.rerun()
@@ -1548,4 +1551,102 @@ def _sayfa_bilgi():
         st.caption("Veritabanını indirir")
     st.divider(); st.subheader("📄 PDF")
     cp1,cp2 = st.columns(2)
-    with cp
+    with cp1:
+        if btn("Aylık Özet PDF",key="bpdfa",caption="Aylık özet PDF"):
+            p = pdf_rapor_olustur("aylik_ozet"); st.download_button("İndir",open(p,"rb"),file_name=p.name,key="indir_aylik")
+    with cp2:
+        p_bas = cp2.date_input("Başlangıç",date.today(),key="pdf_bas")
+        p_bit = cp2.date_input("Bitiş",date.today()+timedelta(days=7),key="pdf_bit")
+        if btn("PDF Oluştur",key="pdf_aralik",caption="Vardiya planı PDF"):
+            p = pdf_rapor_olustur("vardiya_plani",baslangic=p_bas,bitis=p_bit); st.download_button("İndir",open(p,"rb"),file_name=p.name,key="indir_vardiya")
+    st.divider(); st.subheader("📋 Bugünün Planı")
+    bugun_plani = bugun_plani_olustur()
+    if bugun_plani:
+        df_plan = pd.DataFrame(bugun_plani)
+        st.dataframe(df_plan,use_container_width=True)
+        if btn("⬇ .ics İndir",key="ics_indir",caption="Takvim dosyası"):
+            rows = sql_all("SELECT v.tarih,v.baslangic_saat,v.bitis_saat,g.ad AS gemi,m.ad AS makine FROM vardiya_plan v JOIN gemi g ON v.gemi_id=g.id JOIN makine_tipi m ON v.makine_tipi_id=m.id")
+            ics = "BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//Ordino//TR\n"
+            for r in rows:
+                db = f"{r['tarih'].replace('-','')}T{r['baslangic_saat'].replace(':','')}00"
+                de = f"{r['tarih'].replace('-','')}T{r['bitis_saat'].replace(':','')}00"
+                ics += f"BEGIN:VEVENT\nDTSTART:{db}\nDTEND:{de}\nSUMMARY:{r['gemi']} - {r['makine']}\nEND:VEVENT\n"
+            ics += "END:VCALENDAR"
+            st.download_button("İndir .ics",ics,file_name="ordino_plan.ics",key="indir_ics")
+    else:
+        st.info("Bugün için plan yok.")
+
+# ═══════════════════════════════════════════════════════
+# MAIN
+# ═══════════════════════════════════════════════════════
+def main():
+    st.set_page_config(page_title="Ordino", page_icon="⚓", layout="wide")
+    if "ayarlar" not in st.session_state:
+        st.session_state.ayarlar = DEFAULT_AYARLAR
+
+    init_db()
+
+    st.markdown("""
+    <style>
+    .stButton > button { width:100%; border-radius:8px; }
+    @media (max-width: 640px) {
+        .stHorizontalBlock { flex-direction:column !important; }
+        .stColumn { width:100% !important; min-width:100% !important; }
+        div[data-testid="column"] { width:100% !important; }
+    }
+    @media (min-width: 641px) and (max-width: 1024px) {
+        .stColumn { min-width:140px !important; }
+        .stHorizontalBlock { gap: 0.5rem !important; }
+    }
+    .streamlit-expanderHeader { font-weight:600; }
+    div[data-testid="metric-container"] {
+        background:#1e2130; border-radius:12px; padding:16px; border:1px solid #2d3250;
+    }
+    .dataframe { font-size:13px !important; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    with st.sidebar:
+        st.title("⚓ Ordino")
+        st.caption("v8.4")
+        st.markdown("---")
+        uyarilar = sertifika_uyarilari_al()
+        if uyarilar:
+            st.markdown("**⚠️ Yaklaşan Sertifika:**")
+            for u in uyarilar:
+                st.warning(f"{u['ad']} {u['soyad']} — {u['sertifika_adi']} ({u['gecerlilik_tarihi']})")
+        st.markdown("**📋 Bugün:**")
+        for p in bugun_plani_olustur()[:10]:
+            emoji = "✅" if "BOŞ" not in p["Personel"] else "🟡"
+            st.write(f"{emoji} {p['Gemi']} – {p['Makine']}: **{p['Personel']}**")
+        bekleyen_takas = sql_one("SELECT COUNT(*) AS c FROM vardiya_takas WHERE durum='Beklemede'")
+        if bekleyen_takas and bekleyen_takas["c"] > 0:
+            st.info(f"🔁 {bekleyen_takas['c']} bekleyen takas talebi")
+
+    tabs = st.tabs([
+        "🧩 Yapboz",
+        "📅 Takvim",
+        "⚡ Acil",
+        "🚢 Gemiler",
+        "👷 Personel",
+        "📅 İzin",
+        "✦ Öneri",
+        "🔁 Takas",
+        "📊 Analitik",
+        "📋 Bilgi",
+        "⚙️ Ayarlar",
+    ])
+    with tabs[0]: _sayfa_yapboz()
+    with tabs[1]: _sayfa_takvim()
+    with tabs[2]: _sayfa_acil()
+    with tabs[3]: _sayfa_excel()
+    with tabs[4]: _sayfa_personel()
+    with tabs[5]: _sayfa_izin()
+    with tabs[6]: _sayfa_oneri()
+    with tabs[7]: _sayfa_takas()
+    with tabs[8]: _sayfa_analitik()
+    with tabs[9]: _sayfa_bilgi()
+    with tabs[10]: ayarlar_sayfasi()
+
+if __name__ == "__main__":
+    main()
